@@ -1,0 +1,68 @@
+/* Theme exported from the Nuxt UI theme editor: see theme/README.md. */
+@import "../theme/main.css";
+
+/* Bundled font faces for the theme font (the editor loads it from the web). */
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+
+/* Enable cursor for buttons */
+button:not(:disabled) {
+  cursor: pointer;
+}
+
+/* Make lucide icons slightly thinner */
+.iconify--lucide,
+.iconify--lucide * {
+  stroke-width: 1.75;
+}
+
+/* Disable text selection except for some elements */
+html {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea,
+.selectable,
+.selectable * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+:root {
+  --ui-header-height: 3rem;
+  /* Shared by the header and page content (UContainer) so both align. */
+  --ui-container: 51rem;
+}
+
+/* WebView2 adds its own reveal button to password inputs; PasswordInput has one. */
+input::-ms-reveal,
+input::-ms-clear {
+  display: none;
+}
+
+/* Right-click menus come from Go (registerContextMenus in main.go): the browser
+   menu is hidden, text fields get Cut/Copy/Paste and `selectable` text gets Copy.
+   Dev builds keep the browser menu (Wails always shows it there). */
+html {
+  --default-contextmenu: hide;
+}
+
+.selectable,
+.selectable *:not(input, textarea) {
+  --custom-contextmenu: copy;
+}
+
+input,
+textarea,
+[contenteditable="true"] {
+  --custom-contextmenu: edit;
+}
+
+/* A hidden password cannot be cut or copied: no Cut/Copy until the eye shows it. */
+input[type="password"] {
+  --custom-contextmenu: paste;
+}

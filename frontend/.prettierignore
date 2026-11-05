@@ -1,0 +1,7 @@
+node_modules
+dist
+build
+bindings
+package-lock.json
+theme/main.css
+theme/app.config.ts

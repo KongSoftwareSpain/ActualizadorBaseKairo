@@ -1,0 +1,35 @@
+version: '3'
+
+vars:
+  APP_NAME: "migradorkairo"
+  BIN_DIR: "bin"
+  PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "npm"}}'
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+
+includes:
+  common: ./build/Taskfile.yml
+  windows: ./build/windows/Taskfile.yml
+
+tasks:
+  build:
+    summary: Builds the application
+    cmds:
+      - task: windows:build
+
+  package:
+    summary: Packages a production build of the application
+    cmds:
+      - task: windows:package
+
+  run:
+    summary: Runs the application
+    cmds:
+      - task: windows:run
+
+  dev:
+    summary: Runs the application in development mode on a free port (WAILS_VITE_PORT forces one)
+    vars:
+      DEV_PORT:
+        sh: node -e "if(process.env.WAILS_VITE_PORT){console.log(process.env.WAILS_VITE_PORT)}else{const s=require('net').createServer();s.listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})}"
+    cmds:
+      - wails3 dev -config ./build/config.yml -port {{.DEV_PORT}}
