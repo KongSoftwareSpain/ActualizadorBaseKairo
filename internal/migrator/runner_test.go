@@ -215,7 +215,7 @@ func TestApplyEmptyDatabaseThenIdempotent(t *testing.T) {
 	ctx := context.Background()
 	runner := newTestRunner(t, dir, nil)
 
-	if _, err := runner.Apply(ctx); err != nil {
+	if _, err := runner.Apply(ctx, ApplyOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -226,7 +226,7 @@ func TestApplyEmptyDatabaseThenIdempotent(t *testing.T) {
 	var events []Event
 	runner.emit = func(event Event) { events = append(events, event) }
 
-	if _, err := runner.Apply(ctx); err != nil {
+	if _, err := runner.Apply(ctx, ApplyOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -245,7 +245,7 @@ func TestApplyRollsBackFailingScript(t *testing.T) {
 	ctx := context.Background()
 	runner := newTestRunner(t, dir, nil)
 
-	backupPath, err := runner.Apply(ctx)
+	backupPath, err := runner.Apply(ctx, ApplyOptions{})
 	if err == nil {
 		t.Fatal("se esperaba error")
 	}
@@ -278,7 +278,7 @@ func TestApplyOnlyNewScript(t *testing.T) {
 	ctx := context.Background()
 	runner := newTestRunner(t, dir, nil)
 
-	if _, err := runner.Apply(ctx); err != nil {
+	if _, err := runner.Apply(ctx, ApplyOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -293,7 +293,7 @@ func TestApplyOnlyNewScript(t *testing.T) {
 	var events []Event
 	runner.emit = func(event Event) { events = append(events, event) }
 
-	if _, err := runner.Apply(ctx); err != nil {
+	if _, err := runner.Apply(ctx, ApplyOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -310,7 +310,7 @@ func TestApplyKeepsAccents(t *testing.T) {
 	ctx := context.Background()
 	runner := newTestRunner(t, dir, nil)
 
-	if _, err := runner.Apply(ctx); err != nil {
+	if _, err := runner.Apply(ctx, ApplyOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -350,7 +350,7 @@ func TestApplyKeepsSingleBackup(t *testing.T) {
 	var events []Event
 	runner := newTestRunner(t, dir, &events)
 
-	firstPath, err := runner.Apply(ctx)
+	firstPath, err := runner.Apply(ctx, ApplyOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +373,7 @@ func TestApplyKeepsSingleBackup(t *testing.T) {
 
 	events = nil
 
-	secondPath, err := runner.Apply(ctx)
+	secondPath, err := runner.Apply(ctx, ApplyOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,11 +399,11 @@ func TestApplyWithoutPendingSkipsBackup(t *testing.T) {
 	ctx := context.Background()
 	runner := newTestRunner(t, dir, nil)
 
-	if _, err := runner.Apply(ctx); err != nil {
+	if _, err := runner.Apply(ctx, ApplyOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
-	backupPath, err := runner.Apply(ctx)
+	backupPath, err := runner.Apply(ctx, ApplyOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +426,7 @@ func TestBackupFailureStopsBeforeMigrating(t *testing.T) {
 	runner := newTestRunner(t, dir, nil)
 	runner.backupDir = filepath.Join(blocker, "Backups")
 
-	if _, err := runner.Apply(context.Background()); err == nil {
+	if _, err := runner.Apply(context.Background(), ApplyOptions{}); err == nil {
 		t.Fatal("se esperaba error de backup")
 	}
 
@@ -455,7 +455,7 @@ func TestBaselineRegisteredWithoutRunning(t *testing.T) {
 		t.Fatal("se esperaba NeedsBaseline")
 	}
 
-	if _, err := runner.Apply(ctx); err == nil {
+	if _, err := runner.Apply(ctx, ApplyOptions{}); err == nil {
 		t.Fatal("Apply debe negarse hasta registrar la versión base")
 	}
 
@@ -466,7 +466,7 @@ func TestBaselineRegisteredWithoutRunning(t *testing.T) {
 	var events []Event
 	runner.emit = func(event Event) { events = append(events, event) }
 
-	if _, err := runner.Apply(ctx); err != nil {
+	if _, err := runner.Apply(ctx, ApplyOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -497,6 +497,10 @@ func TestEmptyDatabaseDoesNotNeedBaseline(t *testing.T) {
 
 	if status.NeedsBaseline {
 		t.Fatal("una BD vacía no necesita versión base")
+	}
+
+	if len(status.Scripts) != 1 {
+		t.Fatalf("Status.Scripts: %d, esperado 1", len(status.Scripts))
 	}
 
 	if err := runner.RegisterBaseline(context.Background()); err == nil {

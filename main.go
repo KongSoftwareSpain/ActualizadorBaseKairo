@@ -3,11 +3,13 @@ package main
 import (
 	"embed"
 	"log"
+	"sync/atomic"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 
-	"changeme/internal/migrator"
-	"changeme/internal/userconfig"
+	"actualizador/internal/migrator"
+	"actualizador/internal/userconfig"
 )
 
 func init() {
@@ -30,8 +32,8 @@ func main() {
 	})
 
 	app := application.New(application.Options{
-		Name:        "My Product",
-		Description: "A MigradorKairo application",
+		Name:        "Actualizador",
+		Description: "Actualizador de bases de datos SQL Server",
 		Services: []application.Service{
 			application.NewService(&userconfig.Service{}),
 			application.NewService(migratorService),
@@ -43,18 +45,54 @@ func main() {
 
 	registerContextMenus()
 
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:            "My Product",
+	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:            "Actualizador",
 		Width:            1000,
 		Height:           800,
 		BackgroundColour: application.NewRGB(6, 7, 15),
 		URL:              "/",
 	})
 
+	confirmCloseWhileUpdating(app, window, migratorService)
+
 	err = app.Run()
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+// confirmCloseWhileUpdating asks before closing the window during an update.
+// Closing aborts the running script (SQL Server rolls it back), leaving the
+// database half updated and the log cut short.
+func confirmCloseWhileUpdating(app *application.App, window *application.WebviewWindow, service *migrator.Service) {
+	var isCloseConfirmed atomic.Bool
+
+	window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		if isCloseConfirmed.Load() || !service.IsRunning() {
+			return
+		}
+
+		event.Cancel()
+
+		dialog := app.Dialog.Question().
+			SetTitle("Actualización en curso").
+			SetMessage("Hay una actualización en curso. Si cierras ahora, se interrumpe el script que se está ejecutando " +
+				"(SQL Server lo revierte) y la base de datos queda a medio actualizar. ¿Cerrar de todos modos?").
+			AttachToWindow(window)
+
+		closeButton := dialog.AddButton("Cerrar de todos modos")
+		closeButton.OnClick(func() {
+			isCloseConfirmed.Store(true)
+			window.Close()
+		})
+
+		keepButton := dialog.AddButton("Seguir esperando")
+		keepButton.SetAsDefault().SetAsCancel()
+
+		dialog.SetDefaultButton(keepButton)
+		dialog.SetCancelButton(keepButton)
+		dialog.Show()
+	})
 }
 
 // registerContextMenus defines the only right-click menus of the app, in

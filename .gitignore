@@ -4,3 +4,6 @@ frontend/dist
 frontend/node_modules
 build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
 frontend/bindings
+/Scripts
+/Logs
+/Backups

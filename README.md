@@ -1,4 +1,4 @@
-# My Product
+# Actualizador
 
 Wails v3 desktop app: Go backend, Vue 3 + Nuxt UI frontend. See [AGENTS.md](AGENTS.md).
 

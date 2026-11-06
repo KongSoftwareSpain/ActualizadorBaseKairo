@@ -4,7 +4,7 @@ Context for AI coding agents working in this repository. Keep it current when th
 
 ## What this project is
 
-**My Product**: A MigradorKairo application
+**Actualizador**: desktop tool that applies versioned SQL scripts (migrations) to the SQL Server databases of a VB6 ERP/CRM. It is not the Access to SQL Server data migrator (that is a separate project, "Migrador"). The repository folder is `ActualizadorBaseKairo`.
 
 ## Platform
 
@@ -28,6 +28,7 @@ Windows only. Do not add cross-platform code (macOS/Linux/mobile/server/Docker b
 ```
 main.go                   Wails entry point: registers services, creates the window
 internal/userconfig/      userconfig.Service: loads/saves user settings as JSON
+internal/migrator/        migrator.Service: script loading, backup, baseline, apply; emits `migrator:event`
 build/                    Wails build config, Windows Taskfile, icons, NSIS/MSIX installers
 frontend/
   bindings/               GENERATED TypeScript bindings (gitignored, do not edit)
@@ -60,9 +61,20 @@ frontend/
 - `time.Time` fields are typed `Date` (`-time-type=Date`) but arrive as ISO strings. Parse with `new Date(value)`.
 - Go → frontend events: `app.Event.Emit(name, data)`. Register typed events in `init()` with `application.RegisterEvent[T](name)`.
 
+### Migrator
+
+- `internal/migrator` loads `Scripts` (`VNNNN__desc.sql`, UTF-8 or UTF-16 with BOM; ANSI and BOM-less UTF-16 are rejected on purpose), takes a session `sp_getapplock`, backs up, then applies each script in its own transaction.
+- One `.bak` per database (`<db>_preupdate.bak`, `WITH INIT`). After an update that did not finish, the database keeps the extended property `Actualizador.RollbackBackup`; a retry reuses that backup instead of overwriting it. The mark is removed when the update completes.
+- Scripts must not change the database (`USE`): it is checked after every batch and the session is moved back after a rollback.
+- Checksums are computed with LF line endings. An applied script whose checksum changed goes to `Status.Modified` and blocks `Apply`.
+- Servers that are not local need an absolute `BackupDir` (a path on that server) and are not trusted blindly (`TrustServerCertificate` is only set for local servers).
+- Other sessions on the database (the ERP left open): `Status.Sessions` lists them (needs `VIEW SERVER STATE`; `CanSeeSessions` is false otherwise, so an empty list means unknown). `Apply` refuses while there are any unless `ApplyOptions.AllowOtherSessions`; `KickSessions` sets `SINGLE_USER WITH ROLLBACK IMMEDIATE` and always restores `MULTI_USER` (deferred). `SET LOCK_TIMEOUT` (60 s) makes a script blocked by another program fail instead of hanging. The UI exposes kicking only behind a confirmation modal.
+- Base folder (`Scripts`, `Logs`, `Backups`): the executable's folder; under `wails3 dev` (env `FRONTEND_DEVSERVER_URL` set) it is the working directory, i.e. the repository root.
+- Do not call methods that use the connection while `isRunning` is set: the single connection is inside a transaction.
+
 ### User configuration
 
-- `userconfig.Service` stores settings in `os.UserConfigDir()/MigradorKairo/config.json`. A missing file is not an error; defaults come from `userconfig.NewConfig()`.
+- `userconfig.Service` stores settings in `os.UserConfigDir()/Actualizador/config.json`. A missing file is not an error; defaults come from `userconfig.NewConfig()`.
 - `useUserConfigStore` mirrors the config as refs. `main.ts` awaits `config.init()` before mounting, so the saved theme applies before first paint. Call `save()` for one-off changes and `scheduleSave()` for values that change on every keystroke.
 - Never add passwords or other secrets to `userconfig.Config`.
 - To add a setting: add the field (with `json` tag) and default in `internal/userconfig/service.go`, regenerate bindings, then add a ref plus the matching lines in `init()`, `save()` and the returned object of the store.
@@ -75,7 +87,7 @@ frontend/
 - The theme in `frontend/theme/` is an unchanged export of the Nuxt UI theme editor; do not edit it by hand (see `frontend/theme/README.md`). Custom CSS goes in `style.css`.
 - Icons: use `i-lucide-<name>` as literal strings (they are bundled by scanning the source).
 - Text selection is disabled app-wide. Add the `selectable` class to text the user should copy.
-- Routes are declared in `main.ts`. `Buttons.vue` (`/buttons`) is a color/variant showcase, not a product page.
+- Routes are declared in `main.ts`: `/input` (connection, scripts and backup paths) and `/update` (script list, progress, log; guarded: it needs an open connection). `Buttons.vue` (`/buttons`) is a color/variant showcase, not a product page.
 - Path aliases: `@/` → `frontend/src/`, `@bindings/` → `frontend/bindings/`.
 
 ## Conventions

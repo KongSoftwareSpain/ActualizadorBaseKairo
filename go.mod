@@ -1,4 +1,4 @@
-module changeme
+module actualizador
 
 go 1.26.0
 

@@ -2,8 +2,10 @@
 package migrator
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf16"
+	"unicode/utf8"
 )
 
 var scriptNamePattern = regexp.MustCompile(`^V(\d{4})__(.+)\.sql$`)
@@ -57,7 +60,7 @@ func LoadScripts(dir string) ([]Script, error) {
 		}
 
 		version, _ := strconv.Atoi(match[1])
-		hash := sha256.Sum256([]byte(content))
+		hash := sha256.Sum256([]byte(normalizeLineEndings(content)))
 
 		scripts = append(scripts, Script{
 			Version:  version,
@@ -89,19 +92,50 @@ func LoadScripts(dir string) ([]Script, error) {
 	return scripts, nil
 }
 
+// normalizeLineEndings makes the checksum independent of the Git autocrlf
+// setting: the same script has the same checksum on every machine.
+func normalizeLineEndings(content string) string {
+	return strings.ReplaceAll(content, "\r\n", "\n")
+}
+
 // decodeText converts a script to UTF-8, honouring UTF-8 and UTF-16 BOMs.
-// SSMS exports UTF-16 LE by default.
+// SSMS exports UTF-16 LE by default. Anything that is not valid text in one
+// of those encodings (ANSI, UTF-16 without BOM) is rejected: guessing would
+// silently corrupt accents inside string literals.
 func decodeText(raw []byte) (string, error) {
+	var text string
+
 	switch {
 	case len(raw) >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF:
-		return string(raw[3:]), nil
+		text = string(raw[3:])
 	case len(raw) >= 2 && raw[0] == 0xFF && raw[1] == 0xFE:
-		return decodeUTF16(raw[2:], false)
+		decoded, err := decodeUTF16(raw[2:], false)
+		if err != nil {
+			return "", err
+		}
+		text = decoded
 	case len(raw) >= 2 && raw[0] == 0xFE && raw[1] == 0xFF:
-		return decodeUTF16(raw[2:], true)
+		decoded, err := decodeUTF16(raw[2:], true)
+		if err != nil {
+			return "", err
+		}
+		text = decoded
 	default:
-		return string(raw), nil
+		if bytes.IndexByte(raw, 0) >= 0 {
+			return "", errors.New("parece UTF-16 sin BOM: guárdalo como UTF-8 o UTF-16 con BOM")
+		}
+		text = string(raw)
 	}
+
+	if !utf8.ValidString(text) {
+		return "", errors.New("no es UTF-8 válido (¿está en ANSI?): guárdalo como UTF-8 o UTF-16")
+	}
+
+	if strings.ContainsRune(text, utf8.RuneError) {
+		return "", errors.New("contiene caracteres no válidos (U+FFFD): revisa la codificación")
+	}
+
+	return text, nil
 }
 
 func decodeUTF16(raw []byte, isBigEndian bool) (string, error) {

@@ -6,9 +6,9 @@
 		"0409": {
 			"ProductVersion": "0.1.0",
 			"CompanyName": "My Company",
-			"FileDescription": "A MigradorKairo application",
+			"FileDescription": "Actualizador de bases de datos SQL Server",
 			"LegalCopyright": "© 2026, My Company",
-			"ProductName": "My Product",
+			"ProductName": "Actualizador",
 			"Comments": "This is a comment"
 		}
 	}

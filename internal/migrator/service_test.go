@@ -8,7 +8,7 @@ import (
 )
 
 func TestBuildDSN(t *testing.T) {
-	dsn, err := buildDSN(ConnectionParams{Server: `localhost\SQLEXPRESS`, Database: "Kairo", IsWindowsAuth: true})
+	dsn, err := buildDSN(ConnectionParams{Server: `localhost\SQLEXPRESS`, Database: "Kairo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,9 +31,9 @@ func TestBuildDSN(t *testing.T) {
 
 func TestBuildDSNValidates(t *testing.T) {
 	cases := []ConnectionParams{
-		{Database: "Kairo", IsWindowsAuth: true},
-		{Server: "srv", IsWindowsAuth: true},
-		{Server: "srv", Database: "Kairo"},
+		{Database: "Kairo"},
+		{Server: "srv"},
+		{Server: "srv", Database: "Kairo", Password: "sola"},
 	}
 
 	for _, params := range cases {
@@ -63,7 +63,7 @@ func TestServiceConnectAndApply(t *testing.T) {
 	service := NewService(baseDir, func(event Event) { events = append(events, event) })
 	t.Cleanup(func() { service.Disconnect() })
 
-	status, err := service.Connect(ConnectionParams{Server: testServer(), Database: databaseName, IsWindowsAuth: true, BackupDir: probe.backupDir})
+	status, err := service.Connect(ConnectionParams{Server: testServer(), Database: databaseName, BackupDir: probe.backupDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,8 @@ func TestServiceConnectAndApply(t *testing.T) {
 		t.Fatalf("pendientes: %d, esperado 1", len(status.Pending))
 	}
 
-	result, err := service.Apply()
+	// The probe connection is still open: it counts as another session.
+	result, err := service.Apply(ApplyOptions{AllowOtherSessions: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,8 +104,38 @@ func TestServiceConnectFailureHint(t *testing.T) {
 
 	service := NewService(baseDir, nil)
 
-	_, err := service.Connect(ConnectionParams{Server: `localhost\NoExisteInstancia`, Database: "x", IsWindowsAuth: true})
+	_, err := service.Connect(ConnectionParams{Server: `localhost\NoExisteInstancia`, Database: "x"})
 	if err == nil || !strings.Contains(err.Error(), "TCP/IP") {
 		t.Fatalf("se esperaba error con pista de TCP/IP, got %v", err)
+	}
+}
+
+func TestResolveDir(t *testing.T) {
+	baseDir := t.TempDir()
+	service := NewService(baseDir, nil)
+	absolute := filepath.Join(t.TempDir(), "otros")
+
+	cases := []struct{ input, fallback, want string }{
+		{"", "Scripts", filepath.Join(baseDir, "Scripts")},
+		{"./Scripts", "Scripts", filepath.Join(baseDir, "Scripts")},
+		{"../ScriptsRepo", "Scripts", filepath.Join(filepath.Dir(baseDir), "ScriptsRepo")},
+		{absolute, "Scripts", absolute},
+	}
+
+	for _, testCase := range cases {
+		if got := service.resolveDir(testCase.input, testCase.fallback); got != testCase.want {
+			t.Errorf("resolveDir(%q) = %q, esperado %q", testCase.input, got, testCase.want)
+		}
+	}
+}
+
+func TestBuildDSNWhitespaceUserIsWindows(t *testing.T) {
+	dsn, err := buildDSN(ConnectionParams{Server: "srv", Database: "Kairo", Username: "  "})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(dsn, "trusted_connection=yes") {
+		t.Errorf("se esperaba autenticación de Windows: %q", dsn)
 	}
 }

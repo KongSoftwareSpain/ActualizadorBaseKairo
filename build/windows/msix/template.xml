@@ -10,15 +10,15 @@
     <Installer
         Path="migradorkairo.exe"
         Arguments=""
-        InstallLocation="C:\Program Files\My Company\My Product">
+        InstallLocation="C:\Program Files\My Company\Actualizador">
     </Installer>
     <PackageInformation
-        PackageName="My Product"
-        PackageDisplayName="My Product"
+        PackageName="Actualizador"
+        PackageDisplayName="Actualizador"
         PublisherName="CN=My Company"
         PublisherDisplayName="My Company"
         Version="0.1.0.0"
-        PackageDescription="A MigradorKairo application">
+        PackageDescription="Actualizador de bases de datos SQL Server">
         <Capabilities>
             <Capability Name="runFullTrust" />
             
@@ -26,8 +26,8 @@
         <Applications>
             <Application
                 Id="com.example.migradorkairo"
-                Description="A MigradorKairo application"
-                DisplayName="My Product"
+                Description="Actualizador de bases de datos SQL Server"
+                DisplayName="Actualizador"
                 ExecutableName="migradorkairo.exe"
                 EntryPoint="Windows.FullTrustApplication">
                 
@@ -41,9 +41,9 @@
         </Dependencies>
         <Properties>
             <Framework>false</Framework>
-            <DisplayName>My Product</DisplayName>
+            <DisplayName>Actualizador</DisplayName>
             <PublisherDisplayName>My Company</PublisherDisplayName>
-            <Description>A MigradorKairo application</Description>
+            <Description>Actualizador de bases de datos SQL Server</Description>
             <Logo>Assets\AppIcon.png</Logo>
         </Properties>
     </PackageInformation>

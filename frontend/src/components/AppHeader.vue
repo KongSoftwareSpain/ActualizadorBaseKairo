@@ -16,10 +16,13 @@ async function toggleTheme() {
     <div
       class="flex size-7 items-center justify-center rounded-md bg-primary text-inverted"
     >
-      <UIcon name="i-lucide-layout-dashboard" class="size-4" />
+      <UIcon name="i-lucide-database-zap" class="size-4" />
     </div>
 
-    <span class="font-semibold text-highlighted">My Product</span>
+    <div class="flex items-baseline gap-2">
+      <span class="font-semibold text-highlighted">Actualizador</span>
+      <span class="text-sm text-muted">Esquema de SQL Server</span>
+    </div>
 
     <UTooltip :text="config.isDark ? 'Tema claro' : 'Tema oscuro'">
       <UButton
