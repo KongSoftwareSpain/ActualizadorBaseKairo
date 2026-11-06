@@ -6,8 +6,13 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"changeme/internal/migrator"
 	"changeme/internal/userconfig"
 )
+
+func init() {
+	application.RegisterEvent[migrator.Event](migrator.EventName)
+}
 
 // Wails embeds the built frontend into the binary.
 //
@@ -15,11 +20,21 @@ import (
 var assets embed.FS
 
 func main() {
+	baseDir, err := migrator.DefaultBaseDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	migratorService := migrator.NewService(baseDir, func(event migrator.Event) {
+		application.Get().Event.Emit(migrator.EventName, event)
+	})
+
 	app := application.New(application.Options{
 		Name:        "My Product",
 		Description: "A MigradorKairo application",
 		Services: []application.Service{
 			application.NewService(&userconfig.Service{}),
+			application.NewService(migratorService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -36,7 +51,7 @@ func main() {
 		URL:              "/",
 	})
 
-	err := app.Run()
+	err = app.Run()
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -34,22 +36,27 @@ type Status struct {
 	CurrentVersion int      `json:"currentVersion"`
 	AppliedCount   int      `json:"appliedCount"`
 	Pending        []Script `json:"pending"`
+	// NeedsBaseline is true for a database with user tables and no
+	// SchemaVersions: it comes from Access and must be registered, not built.
+	NeedsBaseline bool `json:"needsBaseline"`
 }
 
 // Runner holds one fixed connection: session options and locks depend on it.
 type Runner struct {
-	conn    *sql.Conn
-	emit    func(Event)
-	scripts []Script
+	conn      *sql.Conn
+	emit      func(Event)
+	scripts   []Script
+	backupDir string
 }
 
-// NewRunner takes ownership of conn. Call Close when done.
-func NewRunner(conn *sql.Conn, scripts []Script, emit func(Event)) *Runner {
+// NewRunner takes ownership of conn. Call Close when done. backupDir must be
+// writable by the SQL Server service account.
+func NewRunner(conn *sql.Conn, scripts []Script, backupDir string, emit func(Event)) *Runner {
 	if emit == nil {
 		emit = func(Event) {}
 	}
 
-	return &Runner{conn: conn, scripts: scripts, emit: emit}
+	return &Runner{conn: conn, scripts: scripts, backupDir: backupDir, emit: emit}
 }
 
 func (runner *Runner) Close() error {
@@ -62,10 +69,33 @@ func (runner *Runner) EnsureVersionsTable(ctx context.Context) error {
 	return err
 }
 
+// HasVersionsTable reports whether dbo.SchemaVersions exists.
+func (runner *Runner) HasVersionsTable(ctx context.Context) (bool, error) {
+	var id sql.NullInt64
+	err := runner.conn.QueryRowContext(ctx, `SELECT OBJECT_ID(N'dbo.SchemaVersions', N'U')`).Scan(&id)
+
+	return id.Valid, err
+}
+
 // Status lists applied and pending scripts. It fails if the database holds
 // a version that has no script, or if the names differ.
 func (runner *Runner) Status(ctx context.Context) (Status, error) {
 	status := Status{}
+
+	hasTable, err := runner.HasVersionsTable(ctx)
+	if err != nil {
+		return status, err
+	}
+
+	if !hasTable {
+		status.Pending = runner.scripts
+
+		var userTables int
+		err := runner.conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped = 0`).Scan(&userTables)
+		status.NeedsBaseline = userTables > 0
+
+		return status, err
+	}
 
 	rows, err := runner.conn.QueryContext(ctx, `SELECT Version, ScriptName FROM dbo.SchemaVersions ORDER BY Version`)
 	if err != nil {
@@ -113,25 +143,113 @@ func (runner *Runner) Status(ctx context.Context) (Status, error) {
 	return status, nil
 }
 
-// Apply runs every pending script in order, one transaction per script.
-// It stops at the first failure; earlier scripts stay committed.
-func (runner *Runner) Apply(ctx context.Context) error {
+// Apply backs up the database and runs every pending script in order, one
+// transaction per script. It stops at the first failure; earlier scripts stay
+// committed. It returns the backup path, empty when nothing was pending.
+func (runner *Runner) Apply(ctx context.Context) (backupPath string, err error) {
+	status, err := runner.Status(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	if status.NeedsBaseline {
+		return "", errors.New("la BD tiene tablas pero no SchemaVersions: registra primero la versión base")
+	}
+
+	// No backup without pending scripts: it would overwrite the useful one.
+	if len(status.Pending) == 0 {
+		runner.emit(Event{Kind: "info", Message: "La base de datos ya está actualizada."})
+		return "", nil
+	}
+
+	runner.emit(Event{Kind: "info", Message: "Creando backup previo..."})
+
+	backupPath, err = runner.backup(ctx)
+	if err != nil {
+		runner.emit(Event{Kind: "error", Message: err.Error()})
+		return "", err
+	}
+
+	if err := runner.EnsureVersionsTable(ctx); err != nil {
+		return backupPath, err
+	}
+
+	for _, script := range status.Pending {
+		if err := runner.applyScript(ctx, script); err != nil {
+			message := fmt.Sprintf("%s: %v. Backup previo para volver atrás: %s", script.Name, err, backupPath)
+			runner.emit(Event{Kind: "error", Version: script.Version, Message: message})
+
+			return backupPath, errors.New(message)
+		}
+	}
+
+	before := "BD sin versiones aplicadas"
+	if status.CurrentVersion > 0 {
+		before = fmt.Sprintf("BD en V%04d antes de actualizar", status.CurrentVersion)
+	}
+
+	runner.emit(Event{Kind: "backup", Message: fmt.Sprintf("Backup previo: %s (%s).", backupPath, before)})
+
+	return backupPath, nil
+}
+
+// backup writes <backupDir>\<database>_preupdate.bak with INIT, so only one
+// file per database ever remains. It runs outside any transaction.
+func (runner *Runner) backup(ctx context.Context) (string, error) {
+	var name string
+	if err := runner.conn.QueryRowContext(ctx, `SELECT DB_NAME()`).Scan(&name); err != nil {
+		return "", err
+	}
+
+	dir, err := filepath.Abs(runner.backupDir)
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("no se pudo crear la carpeta de backups %q: %w", dir, err)
+	}
+
+	path := filepath.Join(dir, name+"_preupdate.bak")
+	statement := "BACKUP DATABASE [" + strings.ReplaceAll(name, "]", "]]") + "] TO DISK = @p1 WITH INIT, CHECKSUM"
+
+	if _, err := runner.conn.ExecContext(ctx, statement, path); err != nil {
+		return "", fmt.Errorf("no se pudo crear el backup en %q: %w. La carpeta debe ser escribible por la "+
+			"cuenta del servicio de SQL Server (por ejemplo NT Service\\MSSQL$SQLEXPRESS), no solo por tu usuario", path, err)
+	}
+
+	return path, nil
+}
+
+// RegisterBaseline records the first script as applied without running it.
+func (runner *Runner) RegisterBaseline(ctx context.Context) error {
 	status, err := runner.Status(ctx)
 	if err != nil {
 		return err
 	}
 
-	if len(status.Pending) == 0 {
-		runner.emit(Event{Kind: "info", Message: "La base de datos ya está actualizada."})
-		return nil
+	if !status.NeedsBaseline {
+		return errors.New("la BD no necesita registrar versión base")
 	}
 
-	for _, script := range status.Pending {
-		if err := runner.applyScript(ctx, script); err != nil {
-			runner.emit(Event{Kind: "error", Version: script.Version, Message: fmt.Sprintf("%s: %v", script.Name, err)})
-			return fmt.Errorf("%s: %w", script.Name, err)
-		}
+	if len(runner.scripts) == 0 {
+		return errors.New("no hay scripts: falta V0001__baseline.sql")
 	}
+
+	if err := runner.EnsureVersionsTable(ctx); err != nil {
+		return err
+	}
+
+	baseline := runner.scripts[0]
+
+	_, err = runner.conn.ExecContext(ctx,
+		`INSERT INTO dbo.SchemaVersions (Version, ScriptName, Checksum, DurationMs) VALUES (@p1, @p2, @p3, 0)`,
+		baseline.Version, baseline.Name, baseline.Checksum)
+	if err != nil {
+		return err
+	}
+
+	runner.emit(Event{Kind: "info", Version: baseline.Version, Message: fmt.Sprintf("Versión base registrada sin ejecutar: %s", baseline.Name)})
 
 	return nil
 }
