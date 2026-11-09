@@ -381,7 +381,7 @@ func TestServiceRejectsRelativeBackupDirOnRemoteServer(t *testing.T) {
 
 	service := NewService(baseDir, nil)
 
-	_, err := service.Connect(ConnectionParams{Server: "servidor-remoto-inexistente", Database: "x"})
+	_, err := service.Connect(ConnectionParams{Server: "servidor-remoto-inexistente", Database: "x", BackupDir: "./Backups"})
 	if err == nil || !strings.Contains(err.Error(), "ruta absoluta") {
 		t.Fatalf("se esperaba error de ruta absoluta, got %v", err)
 	}

@@ -553,7 +553,14 @@ func (runner *Runner) clearRollbackBackup(ctx context.Context) error {
 func (runner *Runner) backup(ctx context.Context) (string, error) {
 	dir := runner.backupDir
 
-	if !runner.isRemote {
+	if dir == "" {
+		serverDir, err := runner.defaultBackupDir(ctx)
+		if err != nil {
+			return "", err
+		}
+
+		dir = serverDir
+	} else if !runner.isRemote {
 		absolute, err := filepath.Abs(dir)
 		if err != nil {
 			return "", err
@@ -575,6 +582,36 @@ func (runner *Runner) backup(ctx context.Context) (string, error) {
 	}
 
 	return path, nil
+}
+
+// defaultBackupDir returns the backup folder configured in the SQL Server
+// instance. The service account can always write there, and it is normally not
+// reachable by the end user of the machine.
+func (runner *Runner) defaultBackupDir(ctx context.Context) (string, error) {
+	var dir sql.NullString
+
+	// NULL before SQL Server 2019.
+	err := runner.conn.QueryRowContext(ctx,
+		`SELECT CAST(SERVERPROPERTY('InstanceDefaultBackupPath') AS nvarchar(512))`).Scan(&dir)
+	if err != nil {
+		return "", fmt.Errorf("no se pudo leer la carpeta de backups del servidor: %w", err)
+	}
+
+	if dir.String == "" {
+		err = runner.conn.QueryRowContext(ctx,
+			`DECLARE @dir nvarchar(512);
+			EXEC master.dbo.xp_instance_regread N'HKEY_LOCAL_MACHINE', N'Software\Microsoft\MSSQLServer\MSSQLServer', N'BackupDirectory', @dir OUTPUT;
+			SELECT @dir`).Scan(&dir)
+		if err != nil {
+			return "", fmt.Errorf("no se pudo leer la carpeta de backups del servidor: %w", err)
+		}
+	}
+
+	if dir.String == "" {
+		return "", errors.New("el servidor no informa su carpeta de backups: indica una en \"Carpeta de backups\"")
+	}
+
+	return dir.String, nil
 }
 
 // RegisterBaseline records the first script as applied without running it.

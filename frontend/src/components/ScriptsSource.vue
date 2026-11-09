@@ -32,11 +32,11 @@ const migrator = useMigratorStore();
 
       <UFormField
         label="Carpeta de backups"
-        help="Se crea un único .bak por base de datos antes de actualizar. La carpeta debe poder escribirla el servicio de SQL Server."
+        help="Vacío usa la carpeta de backups del servidor SQL (recomendado: el servicio ya puede escribir ahí). Si indicas otra, debe poder escribirla el servicio de SQL Server."
       >
         <UInput
           v-model="config.backupDir"
-          placeholder="./Backups"
+          placeholder="Carpeta de backups del servidor"
           icon="i-lucide-archive"
           autocomplete="off"
           :disabled="migrator.isBusy"

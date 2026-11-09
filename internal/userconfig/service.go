@@ -17,7 +17,8 @@ type Config struct {
 	Database string `json:"database"`
 	Username string `json:"username"`
 	// ScriptsPath and BackupDir accept relative paths, resolved against the
-	// folder of the executable.
+	// folder of the executable. An empty BackupDir means the backup folder of
+	// the SQL Server instance.
 	ScriptsPath string `json:"scriptsPath"`
 	BackupDir   string `json:"backupDir"`
 }
@@ -27,7 +28,7 @@ func NewConfig() Config {
 		IsDark:      false,
 		Server:      `localhost\SQLEXPRESS`,
 		ScriptsPath: "./Scripts",
-		BackupDir:   "./Backups",
+		BackupDir:   "",
 	}
 }
 

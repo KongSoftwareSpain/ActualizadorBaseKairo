@@ -13,7 +13,7 @@ export const useUserConfigStore = defineStore("userConfig", () => {
   const database = ref("");
   const username = ref("");
   const scriptsPath = ref("./Scripts");
-  const backupDir = ref("./Backups");
+  const backupDir = ref("");
 
   // Private
   let isInitialized = false;

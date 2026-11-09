@@ -30,8 +30,9 @@ type ConnectionParams struct {
 	// Username and Password empty: Windows authentication.
 	Username string `json:"username"`
 	Password string `json:"password"`
-	// ScriptsPath and BackupDir are optional: empty means Scripts and Backups
-	// next to the executable. Relative paths resolve against that folder.
+	// ScriptsPath and BackupDir are optional. Empty ScriptsPath means Scripts
+	// next to the executable; empty BackupDir means the backup folder of the
+	// SQL Server instance. Relative paths resolve against the executable folder.
 	ScriptsPath string `json:"scriptsPath"`
 	BackupDir   string `json:"backupDir"`
 }
@@ -103,8 +104,9 @@ func (service *Service) Connect(params ConnectionParams) (Status, error) {
 	// On a remote server BACKUP writes on that machine: a relative path
 	// resolved against this PC would be meaningless there.
 	isRemote := !isLocalServer(params.Server)
-	if isRemote && !filepath.IsAbs(strings.TrimSpace(params.BackupDir)) {
-		return Status{}, errors.New("el servidor no es local: indica en \"Carpeta de backups\" una ruta absoluta del disco del servidor")
+	backupDir := strings.TrimSpace(params.BackupDir)
+	if isRemote && backupDir != "" && !filepath.IsAbs(backupDir) {
+		return Status{}, errors.New("el servidor no es local: deja \"Carpeta de backups\" vacía o indica una ruta absoluta del disco del servidor")
 	}
 
 	db, err := sql.Open("sqlserver", dsn)
@@ -249,8 +251,14 @@ func (service *Service) acquireRunner() (*Runner, func(), error) {
 	return service.runner, release, nil
 }
 
+// resolveBackupDir returns "" for an empty setting: the runner then uses the
+// backup folder of the SQL Server instance.
 func (service *Service) resolveBackupDir(dir string) string {
-	return service.resolveDir(dir, "Backups")
+	if strings.TrimSpace(dir) == "" {
+		return ""
+	}
+
+	return service.resolveDir(dir, "")
 }
 
 func (service *Service) resolveDir(dir, fallback string) string {
