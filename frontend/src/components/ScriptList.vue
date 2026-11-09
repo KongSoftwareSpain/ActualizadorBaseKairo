@@ -52,6 +52,12 @@ const stateLabels = {
           {{ formatVersion(row.script.version) }} ·
           {{ stateLabels[row.state] }}
         </p>
+        <p
+          v-if="row.script.description"
+          class="mt-0.5 whitespace-pre-line text-xs text-toned"
+        >
+          {{ row.script.description }}
+        </p>
       </div>
     </li>
   </ul>

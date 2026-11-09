@@ -13,7 +13,7 @@ const router = useRouter();
 
 const logElement = ref<HTMLElement | null>(null);
 
-type ConfirmationKey = "allow" | "kick" | "baseline";
+type ConfirmationKey = "allow" | "kick" | "baseline" | "clean";
 
 interface Confirmation {
   title: string;
@@ -52,6 +52,21 @@ const confirmations: Record<ConfirmationKey, Confirmation> = {
     icon: "i-lucide-database",
     color: "warning",
     run: () => migrator.registerBaseline(),
+  },
+  clean: {
+    title: "Limpiar la base de datos",
+    // A getter: the text names the database and the sessions at the time it opens.
+    get description() {
+      const kicked = migrator.hasSessions
+        ? " Hay otros usuarios conectados: se cerrarán sus conexiones."
+        : "";
+
+      return `Se eliminan TODOS los objetos de ${config.database} (tablas con sus datos, vistas, procedimientos, tipos y esquemas), sin backup y sin vuelta atrás. La base de datos queda vacía; al pulsar Actualizar se reconstruye desde V0001.${kicked}`;
+    },
+    label: "Eliminar todo",
+    icon: "i-lucide-trash-2",
+    color: "error",
+    run: () => migrator.clean(migrator.hasSessions),
   },
 };
 
@@ -361,6 +376,15 @@ watch(
       </span>
 
       <template #actions>
+        <UButton
+          label="Limpiar BD"
+          icon="i-lucide-trash-2"
+          color="error"
+          variant="outline"
+          size="lg"
+          :disabled="!migrator.canClean"
+          @click="pendingConfirmation = 'clean'"
+        />
         <UButton
           label="Actualizar"
           icon="i-lucide-database-zap"

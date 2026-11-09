@@ -189,6 +189,25 @@ func (service *Service) Apply(options ApplyOptions) (ApplyResult, error) {
 	return ApplyResult{Status: status, BackupPath: backupPath}, err
 }
 
+// Clean drops every object of the database, schema included, so the next Apply
+// rebuilds it from V0001. There is no backup and no undo. It returns the
+// refreshed status.
+func (service *Service) Clean(options ApplyOptions) (Status, error) {
+	runner, release, err := service.acquireRunner()
+	if err != nil {
+		return Status{}, err
+	}
+	defer release()
+
+	ctx := context.Background()
+
+	if err := runner.Clean(ctx, options); err != nil {
+		return Status{}, err
+	}
+
+	return runner.Status(ctx)
+}
+
 // RegisterBaseline marks V0001 as applied on a database migrated from Access.
 func (service *Service) RegisterBaseline() (Status, error) {
 	runner, release, err := service.acquireRunner()

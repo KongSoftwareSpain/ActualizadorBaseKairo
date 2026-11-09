@@ -111,3 +111,22 @@ func TestSplitHandlesAwkwardGO(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractDescription(t *testing.T) {
+	cases := map[string]struct{ content, want string }{
+		"single line":     {"-- Agrega Ruta_Id\n\nSET ANSI_NULLS ON\nGO", "Agrega Ruta_Id"},
+		"multi line crlf": {"-- Primera\r\n--  Segunda\r\nGO", "Primera\nSegunda"},
+		"leading blanks":  {"\n\n-- Motivo\nGO", "Motivo"},
+		"stops at code":   {"SET NOCOUNT ON\n-- no es descripción", ""},
+		"none":            {"GO", ""},
+		"empty":           {"", ""},
+	}
+
+	for name, test := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := extractDescription(test.content); got != test.want {
+				t.Errorf("got %q, want %q", got, test.want)
+			}
+		})
+	}
+}

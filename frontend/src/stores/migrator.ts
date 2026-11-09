@@ -8,6 +8,7 @@ import {
 } from "@bindings/actualizador/internal/migrator/models";
 import {
   Apply,
+  Clean,
   Connect,
   Disconnect,
   RegisterBaseline,
@@ -76,6 +77,8 @@ export const useMigratorStore = defineStore("migrator", () => {
       !hasSessions.value &&
       !status.value?.needsBaseline,
   );
+
+  const canClean = computed(() => isConnected.value && !isBusy.value);
 
   // Every script with its state. During an update, scripts finished in this
   // run show as "done" before the status is refreshed.
@@ -229,6 +232,23 @@ export const useMigratorStore = defineStore("migrator", () => {
     });
   }
 
+  // Drops every object of the database. Other sessions are kicked only when
+  // the user already confirmed it.
+  async function clean(isKickingSessions: boolean) {
+    await run(async () => {
+      backupPath.value = "";
+      resetRun();
+
+      try {
+        status.value = await Clean(
+          new ApplyOptions({ kickSessions: isKickingSessions }),
+        );
+      } finally {
+        await refreshStatus();
+      }
+    });
+  }
+
   async function registerBaseline() {
     await run(async () => {
       status.value = await RegisterBaseline();
@@ -266,9 +286,11 @@ export const useMigratorStore = defineStore("migrator", () => {
     sessions,
     hasSessions,
     canApply,
+    canClean,
     connect,
     refresh,
     apply,
+    clean,
     registerBaseline,
     disconnect,
     clearLog,

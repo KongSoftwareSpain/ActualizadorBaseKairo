@@ -320,30 +320,11 @@ func (runner *Runner) Apply(ctx context.Context, options ApplyOptions) (backupPa
 		return "", nil
 	}
 
-	if options.KickSessions {
-		if err := runner.setSingleUser(ctx, len(status.Sessions)); err != nil {
-			runner.emit(Event{Kind: "error", Message: err.Error()})
-			return "", err
-		}
-
-		// The database must not stay closed to the ERP, whatever happens next.
-		defer func() {
-			if restoreErr := runner.restoreMultiUser(); restoreErr != nil {
-				runner.emit(Event{Kind: "error", Message: restoreErr.Error()})
-
-				if err == nil {
-					err = restoreErr
-				} else {
-					err = fmt.Errorf("%w (%v)", err, restoreErr)
-				}
-			}
-		}()
-	} else if len(status.Sessions) > 0 && !options.AllowOtherSessions {
-		err := fmt.Errorf("hay %d sesión(es) más conectadas a la base de datos (¿el programa abierto en algún equipo?): ciérralas, o confirma continuar o expulsarlas", len(status.Sessions))
-		runner.emit(Event{Kind: "error", Message: err.Error()})
-
+	release, err := runner.holdSessions(ctx, status, options)
+	if err != nil {
 		return "", err
 	}
+	defer release(&err)
 
 	backupPath, isKept, err := runner.prepareBackup(ctx)
 	if err != nil {
@@ -389,6 +370,44 @@ func (runner *Runner) Apply(ctx context.Context, options ApplyOptions) (backupPa
 	}
 
 	return backupPath, nil
+}
+
+// holdSessions applies the policy for other sessions: refuse, allow, or kick
+// them. The returned function must be deferred with a pointer to the caller's
+// error: it reopens the database when it was closed, and adds a failure to
+// reopen to that error.
+func (runner *Runner) holdSessions(ctx context.Context, status Status, options ApplyOptions) (release func(*error), err error) {
+	if !options.KickSessions {
+		if len(status.Sessions) > 0 && !options.AllowOtherSessions {
+			err := fmt.Errorf("hay %d sesión(es) más conectadas a la base de datos (¿el programa abierto en algún equipo?): ciérralas, o confirma continuar o expulsarlas", len(status.Sessions))
+			runner.emit(Event{Kind: "error", Message: err.Error()})
+
+			return nil, err
+		}
+
+		return func(*error) {}, nil
+	}
+
+	if err := runner.setSingleUser(ctx, len(status.Sessions)); err != nil {
+		runner.emit(Event{Kind: "error", Message: err.Error()})
+		return nil, err
+	}
+
+	// The database must not stay closed to the ERP, whatever happens next.
+	return func(target *error) {
+		restoreErr := runner.restoreMultiUser()
+		if restoreErr == nil {
+			return
+		}
+
+		runner.emit(Event{Kind: "error", Message: restoreErr.Error()})
+
+		if *target == nil {
+			*target = restoreErr
+		} else {
+			*target = fmt.Errorf("%w (%v)", *target, restoreErr)
+		}
+	}, nil
 }
 
 // readSessions fills the other sessions on the database. Without VIEW SERVER

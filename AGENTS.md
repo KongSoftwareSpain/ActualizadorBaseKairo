@@ -65,10 +65,12 @@ frontend/
 
 - `internal/migrator` loads `Scripts` (`VNNNN__desc.sql`, UTF-8 or UTF-16 with BOM; ANSI and BOM-less UTF-16 are rejected on purpose), takes a session `sp_getapplock`, backs up, then applies each script in its own transaction.
 - One `.bak` per database (`<db>_preupdate.bak`, `WITH INIT`). After an update that did not finish, the database keeps the extended property `Actualizador.RollbackBackup`; a retry reuses that backup instead of overwriting it. The mark is removed when the update completes.
+- `Script.Description` is the leading block of `--` comment lines of the file (up to the first blank or code line); the script list shows it. It is part of the checksummed content, so editing it on an applied script marks it `Modified`.
 - Scripts must not change the database (`USE`): it is checked after every batch and the session is moved back after a rollback.
 - Checksums are computed with LF line endings. An applied script whose checksum changed goes to `Status.Modified` and blocks `Apply`.
 - Servers that are not local need an absolute `BackupDir` (a path on that server) and are not trusted blindly (`TrustServerCertificate` is only set for local servers).
 - Other sessions on the database (the ERP left open): `Status.Sessions` lists them (needs `VIEW SERVER STATE`; `CanSeeSessions` is false otherwise, so an empty list means unknown). `Apply` refuses while there are any unless `ApplyOptions.AllowOtherSessions`; `KickSessions` sets `SINGLE_USER WITH ROLLBACK IMMEDIATE` and always restores `MULTI_USER` (deferred). `SET LOCK_TIMEOUT` (60 s) makes a script blocked by another program fail instead of hanging. The UI exposes kicking only behind a confirmation modal.
+- `Clean` (button "Limpiar BD", behind a confirmation modal) drops every user object (tables, views, routines, types, XML schema collections, non-system schemas, `SchemaVersions`) so the next `Apply` rebuilds from V0001. No backup, by design (development use). It does not call `Status`, so it works on a database newer than the scripts. Refuses system databases; same session policy as `Apply` (`holdSessions`). Drops are retried in passes until nothing more can go.
 - Base folder (`Scripts`, `Logs`, `Backups`): the executable's folder; under `wails3 dev` (env `FRONTEND_DEVSERVER_URL` set) it is the working directory, i.e. the repository root.
 - Do not call methods that use the connection while `isRunning` is set: the single connection is inside a transaction.
 

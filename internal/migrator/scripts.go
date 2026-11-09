@@ -25,6 +25,32 @@ type Script struct {
 	Name     string `json:"name"`
 	Content  string `json:"-"`
 	Checksum string `json:"checksum"`
+	// Description is the leading block of "--" comments of the file: why the
+	// script exists. Empty when the file does not start with a comment.
+	Description string `json:"description"`
+}
+
+// extractDescription returns the "--" comment lines at the top of a script,
+// up to the first blank or code line. Leading blank lines are skipped.
+func extractDescription(content string) string {
+	var lines []string
+
+	for line := range strings.SplitSeq(normalizeLineEndings(content), "\n") {
+		line = strings.TrimSpace(line)
+
+		if line == "" && len(lines) == 0 {
+			continue
+		}
+
+		text, isComment := strings.CutPrefix(line, "--")
+		if !isComment {
+			break
+		}
+
+		lines = append(lines, strings.TrimSpace(text))
+	}
+
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 // LoadScripts reads dir, validates the file names and returns the scripts
@@ -67,6 +93,8 @@ func LoadScripts(dir string) ([]Script, error) {
 			Name:     entry.Name(),
 			Content:  content,
 			Checksum: hex.EncodeToString(hash[:]),
+
+			Description: extractDescription(content),
 		})
 	}
 
