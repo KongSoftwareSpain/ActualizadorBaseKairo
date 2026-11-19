@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -57,6 +58,9 @@ type Status struct {
 	// Modified lists applied scripts whose file changed after being applied.
 	// An applied script is never edited: the fix is a new script.
 	Modified []Script `json:"modified"`
+	// Accepted lists applied scripts whose recorded checksum is an older
+	// version the script declares in its .accept file: not a modification.
+	Accepted []Script `json:"accepted"`
 	// NeedsBaseline is true for a database with user tables and no
 	// SchemaVersions: it comes from Access and must be registered, not built.
 	NeedsBaseline bool `json:"needsBaseline"`
@@ -284,7 +288,11 @@ func (runner *Runner) Status(ctx context.Context) (Status, error) {
 
 		// A missing checksum (NULL) means it was never recorded: nothing to compare.
 		if row.checksum != "" && row.checksum != script.Checksum {
-			status.Modified = append(status.Modified, script)
+			if slices.Contains(script.AcceptedChecksums, row.checksum) {
+				status.Accepted = append(status.Accepted, script)
+			} else {
+				status.Modified = append(status.Modified, script)
+			}
 		}
 	}
 
@@ -312,6 +320,10 @@ func (runner *Runner) Apply(ctx context.Context, options ApplyOptions) (backupPa
 
 		return "", fmt.Errorf("scripts ya aplicados modificados: %s. Un script aplicado nunca se edita: restaura su contenido y crea uno nuevo",
 			strings.Join(names, ", "))
+	}
+
+	for _, script := range status.Accepted {
+		runner.emit(Event{Kind: "info", Version: script.Version, Message: fmt.Sprintf("%s se aplicó con una versión anterior aceptada en %s%s.", script.Name, script.Name, acceptedSuffix)})
 	}
 
 	// No backup without pending scripts: it would overwrite the useful one.

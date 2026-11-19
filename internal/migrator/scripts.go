@@ -28,6 +28,50 @@ type Script struct {
 	// Description is the leading block of "--" comments of the file: why the
 	// script exists. Empty when the file does not start with a comment.
 	Description string `json:"description"`
+	// AcceptedChecksums are earlier versions of this script that count as
+	// applied: see loadAcceptedChecksums.
+	AcceptedChecksums []string `json:"-"`
+}
+
+const acceptedSuffix = ".accept"
+
+var checksumPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// loadAcceptedChecksums reads "<script>.sql.accept", the escape hatch for a
+// script that had to be corrected after some databases already applied it: one
+// SHA-256 per line (as the script list shows it), "#" starts a comment. It lives
+// outside the script so adding a line never changes the script's own checksum.
+// The corrected script must have the same effect as the accepted versions.
+func loadAcceptedChecksums(path string) ([]string, error) {
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	text, err := decodeText(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	var checksums []string
+
+	for number, line := range strings.Split(normalizeLineEndings(text), "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(line, "\ufeff"))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		if !checksumPattern.MatchString(line) {
+			return nil, fmt.Errorf("línea %d: se esperaba un SHA-256 en minúsculas (64 hex), no %q", number+1, line)
+		}
+
+		checksums = append(checksums, line)
+	}
+
+	return checksums, nil
 }
 
 // extractDescription returns the "--" comment lines at the top of a script,
@@ -65,7 +109,18 @@ func LoadScripts(dir string) ([]Script, error) {
 	var invalidNames []string
 
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".sql") {
+		if entry.IsDir() {
+			continue
+		}
+
+		if base, isAccept := strings.CutSuffix(entry.Name(), acceptedSuffix); isAccept && strings.EqualFold(filepath.Ext(base), ".sql") {
+			if _, err := os.Stat(filepath.Join(dir, base)); err != nil {
+				invalidNames = append(invalidNames, entry.Name()+" (no hay script "+base+")")
+			}
+			continue
+		}
+
+		if !strings.EqualFold(filepath.Ext(entry.Name()), ".sql") {
 			continue
 		}
 
@@ -85,6 +140,11 @@ func LoadScripts(dir string) ([]Script, error) {
 			return nil, fmt.Errorf("%s: %w", entry.Name(), err)
 		}
 
+		accepted, err := loadAcceptedChecksums(filepath.Join(dir, entry.Name()+acceptedSuffix))
+		if err != nil {
+			return nil, fmt.Errorf("%s%s: %w", entry.Name(), acceptedSuffix, err)
+		}
+
 		version, _ := strconv.Atoi(match[1])
 		hash := sha256.Sum256([]byte(normalizeLineEndings(content)))
 
@@ -94,7 +154,8 @@ func LoadScripts(dir string) ([]Script, error) {
 			Content:  content,
 			Checksum: hex.EncodeToString(hash[:]),
 
-			Description: extractDescription(content),
+			Description:       extractDescription(content),
+			AcceptedChecksums: accepted,
 		})
 	}
 

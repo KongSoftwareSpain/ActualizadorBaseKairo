@@ -130,3 +130,51 @@ func TestExtractDescription(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadScriptsReadsAcceptedChecksums(t *testing.T) {
+	dir := t.TempDir()
+	good := strings.Repeat("ab", 32)
+	writeScript(t, dir, "V0001__a.sql", []byte("SELECT 1"))
+	writeScript(t, dir, "V0001__a.sql.accept", []byte("# motivo\r\n\r\n"+good+"\r\n"))
+
+	scripts, err := LoadScripts(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(scripts[0].AcceptedChecksums) != 1 || scripts[0].AcceptedChecksums[0] != good {
+		t.Fatalf("checksums aceptados inesperados: %v", scripts[0].AcceptedChecksums)
+	}
+}
+
+func TestLoadScriptsRejectsBadAcceptFiles(t *testing.T) {
+	t.Run("checksum mal formado", func(t *testing.T) {
+		dir := t.TempDir()
+		writeScript(t, dir, "V0001__a.sql", []byte("SELECT 1"))
+		writeScript(t, dir, "V0001__a.sql.accept", []byte("no-es-un-hash\n"))
+
+		if _, err := LoadScripts(dir); err == nil {
+			t.Fatal("se esperaba error")
+		}
+	})
+
+	t.Run("ANSI", func(t *testing.T) {
+		dir := t.TempDir()
+		writeScript(t, dir, "V0001__a.sql", []byte("SELECT 1"))
+		writeScript(t, dir, "V0001__a.sql.accept", []byte("# correcci\xf3n\n"))
+
+		if _, err := LoadScripts(dir); err == nil {
+			t.Fatal("se esperaba error")
+		}
+	})
+
+	t.Run("sin script asociado", func(t *testing.T) {
+		dir := t.TempDir()
+		writeScript(t, dir, "V0001__a.sql", []byte("SELECT 1"))
+		writeScript(t, dir, "V0002__b.sql.accept", []byte(strings.Repeat("ab", 32)+"\n"))
+
+		if _, err := LoadScripts(dir); err == nil {
+			t.Fatal("se esperaba error")
+		}
+	})
+}

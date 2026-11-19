@@ -575,3 +575,66 @@ func TestDescribeConnectErrorCertificate(t *testing.T) {
 		t.Fatalf("se esperaba la pista del certificado: %v", err)
 	}
 }
+
+func TestAcceptedChecksumIsNotModified(t *testing.T) {
+	dir := t.TempDir()
+	writeScript(t, dir, "V0001__clientes.sql", []byte(createClientes))
+
+	ctx := context.Background()
+	var events []Event
+	runner := newTestRunner(t, dir, &events)
+
+	if _, err := runner.Apply(ctx, ApplyOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	applied := runner.scripts[0].Checksum
+
+	// The script is corrected: without .accept it is a modification.
+	writeScript(t, dir, "V0001__clientes.sql", []byte(createClientes+"\n-- corregido\n"))
+
+	var err error
+	runner.scripts, err = LoadScripts(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	status, err := runner.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(status.Modified) != 1 || len(status.Accepted) != 0 {
+		t.Fatalf("sin .accept debe ser Modified: %+v", status)
+	}
+
+	writeScript(t, dir, "V0001__clientes.sql.accept", []byte("# corrección\n"+applied+"\n"))
+
+	runner.scripts, err = LoadScripts(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	status, err = runner.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(status.Modified) != 0 || len(status.Accepted) != 1 {
+		t.Fatalf("con .accept debe ser Accepted: %+v", status)
+	}
+
+	events = nil
+	if _, err := runner.Apply(ctx, ApplyOptions{}); err != nil {
+		t.Fatalf("Apply no debe bloquearse: %v", err)
+	}
+
+	logged := false
+	for _, event := range events {
+		logged = logged || strings.Contains(event.Message, "versión anterior aceptada")
+	}
+
+	if !logged {
+		t.Fatal("falta la línea de log de la versión aceptada")
+	}
+}
