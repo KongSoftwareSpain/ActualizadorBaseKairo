@@ -41,14 +41,14 @@ frontend/
 
 | Task | Command |
 | --- | --- |
-| Dev mode | `wails3 dev` |
-| Production build (output in `bin/`) | `wails3 build` |
+| Dev mode | `wails3 task dev` |
+| Production build (output in `bin/`) | `wails3 task build` |
 | Regenerate bindings | `wails3 generate bindings -d frontend/bindings -ts -clean=true -time-type=Date` |
 | Type-check frontend | `cd frontend && npx vue-tsc -b` |
 | Check / apply frontend formatting | `cd frontend && npm run format:check` / `npm run format` |
 | Format / vet Go | `gofmt -w .` / `go vet ./...` |
 
-`wails3 dev` picks a free port for the Vite dev server each run, so several Wails projects can run at once (`WAILS_VITE_PORT` forces a port).
+`wails3 task dev` picks a free port for the Vite dev server each run, so several Wails projects can run at once (`WAILS_VITE_PORT` forces a port).
 
 ## Architecture
 
@@ -73,7 +73,7 @@ frontend/
 - Servers that are not local need an empty or absolute `BackupDir` (a path on that server) and are not trusted blindly (`TrustServerCertificate` is only set for local servers).
 - Other sessions on the database (the ERP left open): `Status.Sessions` lists them (needs `VIEW SERVER STATE`; `CanSeeSessions` is false otherwise, so an empty list means unknown). `Apply` refuses while there are any unless `ApplyOptions.AllowOtherSessions`; `KickSessions` sets `SINGLE_USER WITH ROLLBACK IMMEDIATE` and always restores `MULTI_USER` (deferred). `SET LOCK_TIMEOUT` (60 s) makes a script blocked by another program fail instead of hanging. The UI exposes kicking only behind a confirmation modal.
 - `Clean` (button "Limpiar BD", behind a confirmation modal) drops every user object (tables, views, routines, types, XML schema collections, non-system schemas, `SchemaVersions`) so the next `Apply` rebuilds from V0001. No backup, by design (development use). It does not call `Status`, so it works on a database newer than the scripts. Refuses system databases; same session policy as `Apply` (`holdSessions`). Drops are retried in passes until nothing more can go.
-- Base folder (`Scripts`, `Logs`, `Backups`): the executable's folder; under `wails3 dev` (env `FRONTEND_DEVSERVER_URL` set) it is the working directory, i.e. the repository root.
+- Base folder (`Scripts`, `Logs`, `Backups`): the executable's folder; under `wails3 task dev` (env `FRONTEND_DEVSERVER_URL` set) it is the working directory, i.e. the repository root.
 - Do not call methods that use the connection while `isRunning` is set: the single connection is inside a transaction.
 
 ### User configuration
