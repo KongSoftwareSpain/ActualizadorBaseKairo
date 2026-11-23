@@ -54,6 +54,8 @@ func TestRunAgainstRealServer(t *testing.T) {
 		IniPath:   writeIni(t, "[BaseDatos]\nServidor="+server+"\nBaseDatos="+database+"\n"),
 		Username:  os.Getenv("SILENT_TEST_USER"),
 		Password:  os.Getenv("SILENT_TEST_PASSWORD"),
+		// Los logins de prueba (db_owner) no ven otras sesiones
+		AllowUnknownSessions: true,
 	}
 
 	if options.Username == "" {
@@ -112,6 +114,8 @@ func TestRunRefusesDatabaseFromAccess(t *testing.T) {
 		IniPath:   writeIni(t, "[BaseDatos]\nServidor="+server+"\nBaseDatos="+database+"\n"),
 		Username:  os.Getenv("SILENT_TEST_USER"),
 		Password:  os.Getenv("SILENT_TEST_PASSWORD"),
+		// Los logins de prueba (db_owner) no ven otras sesiones
+		AllowUnknownSessions: true,
 	}
 
 	service := migrator.NewService(baseDir, nil)

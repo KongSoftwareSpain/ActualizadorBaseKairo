@@ -25,6 +25,9 @@ type Options struct {
 	IniPath   string
 	Username  string
 	Password  string
+	// AllowUnknownSessions applies even if the login cannot see other sessions.
+	// Only for tests and throwaway databases: the command line never sets it.
+	AllowUnknownSessions bool
 }
 
 // Connection is the non-secret part of the connection, read from the ini.
@@ -39,6 +42,8 @@ type Updater interface {
 	Apply(options migrator.ApplyOptions) (migrator.ApplyResult, error)
 	Disconnect()
 }
+
+var errCannotSeeSessions = errors.New("el login no tiene VIEW SERVER STATE: no se puede saber si Kairo está abierto, un técnico debe decidir")
 
 var errNeedsBaseline = errors.New("la BD tiene tablas pero no SchemaVersions (viene de Access): un técnico debe registrar la versión base desde la ventana")
 
@@ -95,6 +100,18 @@ func Run(updater Updater, options Options) (Connection, error) {
 
 	if status.NeedsBaseline {
 		return connection, errNeedsBaseline
+	}
+
+	// Con scripts pendientes no se actualiza si hay otras sesiones (el ERP abierto) ni si no se pueden ver:
+	// sin VIEW SERVER STATE una lista vacia significa "no se sabe", no "nadie".
+	if len(status.Pending) > 0 {
+		if len(status.Sessions) > 0 {
+			return connection, fmt.Errorf("hay %d sesión(es) abiertas en la base de datos (¿Kairo abierto en otro equipo?): un técnico debe decidir", len(status.Sessions))
+		}
+
+		if !status.CanSeeSessions && !options.AllowUnknownSessions {
+			return connection, errCannotSeeSessions
+		}
 	}
 
 	if _, err := updater.Apply(migrator.ApplyOptions{}); err != nil {

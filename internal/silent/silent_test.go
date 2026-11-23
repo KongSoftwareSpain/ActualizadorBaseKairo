@@ -141,3 +141,74 @@ func TestRunFallsBackOnEveryFailure(t *testing.T) {
 		})
 	}
 }
+
+func TestRunStopsWhenOtherSessionsOrUnknownWithPendingScripts(t *testing.T) {
+	ini := writeIni(t, "[BaseDatos]\nServidor=srv\nBaseDatos=K\n")
+	pending := []migrator.Script{{Version: 1, Name: "V0001__a.sql"}}
+	base := Options{IsEnabled: true, IniPath: ini, Username: "kong", Password: "x"}
+
+	cases := map[string]struct {
+		status  migrator.Status
+		options Options
+		isOk    bool
+	}{
+		"hay sesiones abiertas":     {migrator.Status{Pending: pending, CanSeeSessions: true, Sessions: []migrator.Session{{ID: 52, Program: "Kairo.exe"}}}, base, false},
+		"no se pueden ver":          {migrator.Status{Pending: pending, CanSeeSessions: false}, base, false},
+		"no se pueden ver, forzado": {migrator.Status{Pending: pending, CanSeeSessions: false}, Options{IsEnabled: true, IniPath: ini, Username: "kong", Password: "x", AllowUnknownSessions: true}, true},
+		"nadie conectado":           {migrator.Status{Pending: pending, CanSeeSessions: true}, base, true},
+		"nada pendiente":            {migrator.Status{CanSeeSessions: false}, base, true},
+	}
+
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			updater := &fakeUpdater{status: testCase.status}
+
+			_, err := Run(updater, testCase.options)
+			if testCase.isOk && err != nil {
+				t.Fatalf("debía aplicar: %v", err)
+			}
+
+			if !testCase.isOk {
+				if err == nil {
+					t.Fatal("debía parar y dejar paso a la ventana")
+				}
+
+				if updater.isApplied {
+					t.Fatal("no debe aplicar nada")
+				}
+			}
+		})
+	}
+}
+
+func TestReadConnectionFirstKeyWinsAndQuotesAreRemoved(t *testing.T) {
+	path := writeIni(t, "[BaseDatos]\nServidor=\"srv"+`\`+"SQL\"\nBaseDatos=Primera\nBaseDatos=Segunda\n")
+
+	connection, err := ReadConnection(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if connection.Server != `srv\SQL` || connection.Database != "Primera" {
+		t.Fatalf("conexión inesperada: %+v", connection)
+	}
+}
+
+func TestReadConnectionUTF16BigEndian(t *testing.T) {
+	text := "[BaseDatos]\r\nServidor=srv\r\nBaseDatos=K\r\n"
+	raw := []byte{0xFE, 0xFF}
+
+	for _, r := range text {
+		raw = append(raw, byte(r>>8), byte(r))
+	}
+
+	path := filepath.Join(t.TempDir(), "config.ini")
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	connection, err := ReadConnection(path)
+	if err != nil || connection.Server != "srv" || connection.Database != "K" {
+		t.Fatalf("UTF-16 BE: %+v, %v", connection, err)
+	}
+}

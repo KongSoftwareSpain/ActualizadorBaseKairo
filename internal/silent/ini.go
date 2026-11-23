@@ -43,15 +43,27 @@ func decodeIni(raw []byte) string {
 	case len(raw) >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF:
 		return string(raw[3:])
 	case len(raw) >= 2 && raw[0] == 0xFF && raw[1] == 0xFE:
-		units := make([]uint16, (len(raw)-2)/2)
-		for index := range units {
-			units[index] = uint16(raw[2+2*index]) | uint16(raw[3+2*index])<<8
-		}
-
-		return string(utf16.Decode(units))
+		return decodeUTF16(raw[2:], false)
+	case len(raw) >= 2 && raw[0] == 0xFE && raw[1] == 0xFF:
+		return decodeUTF16(raw[2:], true)
 	default:
 		return string(raw)
 	}
+}
+
+func decodeUTF16(raw []byte, isBigEndian bool) string {
+	units := make([]uint16, len(raw)/2)
+
+	for index := range units {
+		low, high := raw[2*index], raw[2*index+1]
+		if isBigEndian {
+			low, high = high, low
+		}
+
+		units[index] = uint16(low) | uint16(high)<<8
+	}
+
+	return string(utf16.Decode(units))
 }
 
 // parseIni returns section -> key -> value, all lower-case names. Lines that
@@ -83,7 +95,19 @@ func parseIni(text string) map[string]map[string]string {
 			continue
 		}
 
-		sections[current][strings.ToLower(strings.TrimSpace(key))] = strings.TrimSpace(value)
+		key = strings.ToLower(strings.TrimSpace(key))
+		value = strings.TrimSpace(value)
+
+		// Como GetPrivateProfileString: gana la primera aparicion de una clave y se quita un par de comillas que envuelva el valor
+		if _, isDuplicate := sections[current][key]; isDuplicate {
+			continue
+		}
+
+		if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
+			value = value[1 : len(value)-1]
+		}
+
+		sections[current][key] = value
 	}
 
 	return sections
