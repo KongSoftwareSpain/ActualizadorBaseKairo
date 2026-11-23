@@ -80,3 +80,44 @@ func TestRunAgainstRealServer(t *testing.T) {
 		}
 	}
 }
+
+// TestRunRefusesDatabaseFromAccess needs SILENT_TEST_ACCESS_DATABASE: a database
+// that has user tables but no dbo.SchemaVersions. The silent run must stop
+// without touching it, so that a technician registers the base version.
+func TestRunRefusesDatabaseFromAccess(t *testing.T) {
+	server := os.Getenv("SILENT_TEST_SERVER")
+	database := os.Getenv("SILENT_TEST_ACCESS_DATABASE")
+	scripts := os.Getenv("SILENT_TEST_SCRIPTS")
+
+	if server == "" || database == "" || scripts == "" {
+		t.Skip("define SILENT_TEST_SERVER, SILENT_TEST_ACCESS_DATABASE y SILENT_TEST_SCRIPTS")
+	}
+
+	baseDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(baseDir, "Scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(scripts, "V0001__kairo.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(baseDir, "Scripts", "V0001__kairo.sql"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	options := Options{
+		IsEnabled: true,
+		IniPath:   writeIni(t, "[BaseDatos]\nServidor="+server+"\nBaseDatos="+database+"\n"),
+		Username:  os.Getenv("SILENT_TEST_USER"),
+		Password:  os.Getenv("SILENT_TEST_PASSWORD"),
+	}
+
+	service := migrator.NewService(baseDir, nil)
+
+	_, runErr := Run(service, options)
+	if runErr == nil || !strings.Contains(runErr.Error(), "SchemaVersions") {
+		t.Fatalf("debía rechazar la BD de Access, devolvió: %v", runErr)
+	}
+}
