@@ -7,3 +7,6 @@ frontend/bindings
 /Scripts
 /Logs
 /Backups
+
+# Contrasena del modo silencioso (la genera build/windows/silent-password.ps1)
+silent_password_local.go

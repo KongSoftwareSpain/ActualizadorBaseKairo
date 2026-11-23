@@ -15,8 +15,9 @@ import (
 )
 
 // silentPassword is the password of the installer login used by --silent. It
-// is injected at build time (-ldflags "-X main.silentPassword=...") so it is not
-// in the source. Empty: the silent mode always falls back to the window.
+// is set by silent_password_local.go, generated at build time by
+// build/windows/silent-password.ps1 and ignored by git, so it is not in the
+// source. Empty: the silent mode always falls back to the window.
 var silentPassword string
 
 func init() {

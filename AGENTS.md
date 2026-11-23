@@ -102,3 +102,10 @@ frontend/
 - Formatting: Prettier (double quotes, semicolons) and `gofmt`. Run them before finishing a change.
 - Keep comments sparse and about *why*.
 - Verify changes before finishing: `npx vue-tsc -b` and `npm run format:check` in `frontend/` for the frontend; `go vet ./...` and `gofmt -l .` in the repository root for Go.
+
+### Silent mode (`--silent`)
+
+- `Actualizador.exe --silent --ini "<Kairo>\config.ini" [--user kong]`: for the Kairo SQL installer. `internal/silent` reads `[BaseDatos] Servidor` and `BaseDatos` from the Kairo `config.ini`, connects with the installer login, runs `Service.Apply` with no `AllowOtherSessions` (it never kicks other sessions) and exits with code 0, no window.
+- Any problem (no ini, login rejected, database from Access without `SchemaVersions`, a script fails, ERP open) is logged in `Logs\silent.log`, the server and database are saved in the user config, and the normal window opens for a technician.
+- The login password is never in git or on the command line. `build/windows/silent-password.ps1` writes `silent_password_local.go` (git-ignored) from the env var `KAIRO_SILENT_PASSWORD` before `wails3 task build`. Without it the silent mode always falls back to the window.
+- Run `go test ./internal/silent/...`. The `internal/migrator` tests need a local SQL Server Express and write backups in its folder.
