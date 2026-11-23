@@ -400,7 +400,7 @@ watch(
       :open="activeConfirmation !== null"
       :title="activeConfirmation?.title"
       :description="activeConfirmation?.description"
-      @update:open="(isOpen) => !isOpen && (pendingConfirmation = null)"
+      @update:open="(isOpen: boolean) => !isOpen && (pendingConfirmation = null)"
     >
       <template #footer>
         <UButton
