@@ -3,14 +3,21 @@ package main
 import (
 	"embed"
 	"log"
+	"os"
 	"sync/atomic"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 
 	"actualizador/internal/migrator"
+	"actualizador/internal/silent"
 	"actualizador/internal/userconfig"
 )
+
+// silentPassword is the password of the installer login used by --silent. It
+// is injected at build time (-ldflags "-X main.silentPassword=...") so it is not
+// in the source. Empty: the silent mode always falls back to the window.
+var silentPassword string
 
 func init() {
 	application.RegisterEvent[migrator.Event](migrator.EventName)
@@ -27,11 +34,18 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// There is no window while the silent run goes on: events only reach the log file.
+	var app *application.App
+
 	migratorService := migrator.NewService(baseDir, func(event migrator.Event) {
-		application.Get().Event.Emit(migrator.EventName, event)
+		if app != nil {
+			app.Event.Emit(migrator.EventName, event)
+		}
 	})
 
-	app := application.New(application.Options{
+	runSilent(baseDir, migratorService)
+
+	app = application.New(application.Options{
 		Name:        "Actualizador",
 		Description: "Actualizador de bases de datos SQL Server",
 		Services: []application.Service{
@@ -130,5 +144,31 @@ func setMenuLabel(menu *application.ContextMenu, role application.Role, label st
 	item := menu.FindByRole(role)
 	if item != nil {
 		item.SetLabel(label)
+	}
+}
+
+// runSilent handles --silent. When the update finishes it ends the process
+// with code 0 and no window. On any problem it logs why, fills in the server
+// and database of the window that opens next, and returns so that a technician
+// can take over.
+func runSilent(baseDir string, service *migrator.Service) {
+	options := silent.ParseArgs(os.Args[1:])
+	if !options.IsEnabled {
+		return
+	}
+
+	options.Password = silentPassword
+
+	connection, err := silent.Run(service, options)
+	if err == nil {
+		os.Exit(0)
+	}
+
+	if logErr := silent.LogFailure(baseDir, err); logErr != nil {
+		log.Printf("silent: %v (y no se pudo escribir el log: %v)", err, logErr)
+	}
+
+	if prefillErr := silent.Prefill(&userconfig.Service{}, connection); prefillErr != nil {
+		log.Printf("silent: no se pudo rellenar la conexión: %v", prefillErr)
 	}
 }
