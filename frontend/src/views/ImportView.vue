@@ -205,17 +205,22 @@ async function onConfirm() {
 
     <UModal
       v-model:open="isConfirmOpen"
-      title="Importar y borrar estas bases de datos"
-      description="Se borrará TODO el contenido de estas bases de datos antes de importar. No hay copia de seguridad."
+      title="Importar en estas bases de datos"
+      description="Las que ya existen se vacían del todo antes de importar, sin copia de seguridad. Las que no existen se crean."
     >
       <template #body>
         <p v-if="importer.shouldKickSessions" class="mb-2 text-sm">
           Se cerrarán las conexiones abiertas a estas bases de datos (Kairo
           abierto, por ejemplo).
         </p>
-        <ul class="selectable flex flex-col gap-1 text-sm text-error">
-          <li v-for="row in plannedRows" :key="row.id">
-            {{ row.planned?.server }} / {{ row.planned?.database }}
+        <ul class="selectable flex flex-col gap-1 text-sm">
+          <li
+            v-for="row in plannedRows"
+            :key="row.id"
+            :class="row.planned?.isNew ? 'text-muted' : 'text-error'"
+          >
+            {{ row.planned?.server }} / {{ row.planned?.database }} —
+            {{ row.planned?.isNew ? "se creará" : "se borrará todo" }}
           </li>
         </ul>
       </template>
@@ -229,7 +234,7 @@ async function onConfirm() {
           @click="isConfirmOpen = false"
         />
         <UButton
-          label="Borrar e importar"
+          label="Importar"
           icon="i-lucide-trash-2"
           color="error"
           size="xl"

@@ -47,7 +47,10 @@ type PlannedJob struct {
 	Username  string `json:"username"`
 	SqlPath   string `json:"sqlPath"`
 	SizeBytes int64  `json:"sizeBytes"`
-	Error     string `json:"error"`
+	// IsNew is true when the database does not exist yet and Run will create
+	// it. False also when the server could not be asked (Run then reports why).
+	IsNew bool   `json:"isNew"`
+	Error string `json:"error"`
 }
 
 // JobResult is the outcome of one job of Run.
@@ -159,6 +162,9 @@ func (service *Service) planJob(job Job) PlannedJob {
 
 	planned.SizeBytes = info.Size()
 
+	exists, err := migrator.DatabaseExists(service.connectionParams(planned))
+	planned.IsNew = err == nil && !exists
+
 	return planned
 }
 
@@ -252,9 +258,18 @@ func (service *Service) runJob(job PlannedJob, options migrator.ApplyOptions) Jo
 		return fail(err)
 	}
 
-	runner, closeAll, err := migrator.Open(migrator.ConnectionParams{
-		Server: job.Server, Database: job.Database, Username: service.username, Password: service.password,
-	}, func(event migrator.Event) {
+	params := service.connectionParams(job)
+
+	isCreated, err := migrator.EnsureDatabase(params)
+	if err != nil {
+		return fail(err)
+	}
+
+	if isCreated {
+		service.publish(Event{JobID: job.ID, Kind: "info", Message: fmt.Sprintf("Base de datos %s creada", job.Database)})
+	}
+
+	runner, closeAll, err := migrator.Open(params, func(event migrator.Event) {
 		if event.Kind != "error" {
 			service.publish(Event{JobID: job.ID, Kind: "info", Message: event.Message})
 		}
@@ -314,6 +329,10 @@ func (service *Service) runJob(job PlannedJob, options migrator.ApplyOptions) Jo
 		Message: fmt.Sprintf("Importado: %d lotes, %d aviso(s)", result.Batches, len(result.Warnings))})
 
 	return result
+}
+
+func (service *Service) connectionParams(job PlannedJob) migrator.ConnectionParams {
+	return migrator.ConnectionParams{Server: job.Server, Database: job.Database, Username: service.username, Password: service.password}
 }
 
 // checkScript reads the script to the end without running anything.

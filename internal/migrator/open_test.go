@@ -73,3 +73,50 @@ func TestOpenAndExecBatchRepinsDatabase(t *testing.T) {
 		t.Fatal("un lote erróneo debe devolver error")
 	}
 }
+
+func TestEnsureDatabaseCreatesMissingAndKeepsExisting(t *testing.T) {
+	ctx := context.Background()
+	// The closing bracket in the name checks the quoting.
+	name := fmt.Sprintf("MigradorEnsure]_%d", time.Now().UnixNano())
+
+	master := openDB(t, "master")
+	if err := master.PingContext(ctx); err != nil {
+		master.Close()
+		t.Skipf("SQL Server no disponible: %v", err)
+	}
+
+	t.Cleanup(func() {
+		quoted := quoteName(name)
+		master.ExecContext(ctx, "ALTER DATABASE "+quoted+" SET SINGLE_USER WITH ROLLBACK IMMEDIATE")
+		master.ExecContext(ctx, "DROP DATABASE "+quoted)
+		master.Close()
+	})
+
+	params := ConnectionParams{Server: testServer(), Database: name}
+
+	exists, err := DatabaseExists(params)
+	if err != nil || exists {
+		t.Fatalf("antes de crear: exists=%v err=%v", exists, err)
+	}
+
+	isCreated, err := EnsureDatabase(params)
+	if err != nil || !isCreated {
+		t.Fatalf("primera llamada: isCreated=%v err=%v", isCreated, err)
+	}
+
+	exists, err = DatabaseExists(params)
+	if err != nil || !exists {
+		t.Fatalf("después de crear: exists=%v err=%v", exists, err)
+	}
+
+	isCreated, err = EnsureDatabase(params)
+	if err != nil || isCreated {
+		t.Fatalf("segunda llamada no debe crear: isCreated=%v err=%v", isCreated, err)
+	}
+}
+
+func TestEnsureDatabaseRejectsMissingServer(t *testing.T) {
+	if _, err := EnsureDatabase(ConnectionParams{Database: "x"}); err == nil || !strings.Contains(err.Error(), "falta el servidor") {
+		t.Fatalf("err = %v", err)
+	}
+}

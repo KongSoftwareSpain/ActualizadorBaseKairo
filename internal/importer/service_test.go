@@ -2,10 +2,12 @@ package importer
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"actualizador/internal/migrator"
 )
@@ -265,5 +267,83 @@ func TestRunKicksOtherSessionsOnlyWhenAsked(t *testing.T) {
 
 	if !results[0].IsDone || !tableExists(t, master, name, "T") {
 		t.Fatalf("expulsando debe importar: %+v", results[0])
+	}
+}
+
+// missingDatabase returns a name that does not exist and drops it when the test ends.
+func missingDatabase(t *testing.T) string {
+	t.Helper()
+
+	master := openMaster(t)
+	name := fmt.Sprintf("ImporterNew_%d", time.Now().UnixNano())
+
+	t.Cleanup(func() {
+		master.Exec("ALTER DATABASE [" + name + "] SET SINGLE_USER WITH ROLLBACK IMMEDIATE")
+		master.Exec("DROP DATABASE [" + name + "]")
+		master.Close()
+	})
+
+	return name
+}
+
+func TestPlanMarksDatabaseToCreate(t *testing.T) {
+	existing, _ := createDatabase(t)
+	missing := missingDatabase(t)
+	sqlPath := writeSQL(t, "SELECT 1\nGO\n")
+
+	planned := windowsAuthService(t).Plan([]Job{
+		{ID: "old", KairoPath: writeKairo(t, testServer(), existing, ""), SqlPath: sqlPath},
+		{ID: "new", KairoPath: writeKairo(t, testServer(), missing, ""), SqlPath: sqlPath},
+	})
+
+	if planned[0].Error != "" || planned[0].IsNew {
+		t.Fatalf("existente: %+v", planned[0])
+	}
+
+	if planned[1].Error != "" || !planned[1].IsNew {
+		t.Fatalf("inexistente: %+v", planned[1])
+	}
+}
+
+func TestRunCreatesMissingDatabase(t *testing.T) {
+	missing := missingDatabase(t)
+	master := openMaster(t)
+	defer master.Close()
+
+	results, err := windowsAuthService(t).Run([]Job{
+		{ID: "new", KairoPath: writeKairo(t, testServer(), missing, ""), SqlPath: writeSQL(t, "CREATE TABLE dbo.Nueva (A int)\nGO\nINSERT dbo.Nueva VALUES (1)\nGO\n")},
+	}, migratorOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !results[0].IsDone || results[0].Error != "" {
+		t.Fatalf("result = %+v", results[0])
+	}
+
+	if !tableExists(t, master, missing, "Nueva") {
+		t.Fatal("la base de datos debe crearse y contener la tabla del script")
+	}
+}
+
+func TestRunDoesNotCreateDatabaseWhenScriptIsEmpty(t *testing.T) {
+	missing := missingDatabase(t)
+	master := openMaster(t)
+	defer master.Close()
+
+	results, err := windowsAuthService(t).Run([]Job{
+		{ID: "new", KairoPath: writeKairo(t, testServer(), missing, ""), SqlPath: writeSQL(t, "\nGO\n")},
+	}, migratorOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if results[0].IsDone {
+		t.Fatalf("result = %+v", results[0])
+	}
+
+	var id *int
+	if err := master.QueryRow("SELECT DB_ID(@p1)", missing).Scan(&id); err != nil || id != nil {
+		t.Fatalf("un script vacío no debe crear la base de datos (id=%v, err=%v)", id, err)
 	}
 }
