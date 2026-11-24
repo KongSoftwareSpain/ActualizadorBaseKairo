@@ -324,11 +324,32 @@ func (service *Service) runJob(job PlannedJob, options migrator.ApplyOptions) Jo
 		return fail(err)
 	}
 
+	// The login that imports must be able to use the database afterwards.
+	changed, accessErr := runner.EnsureOwnAccess(ctx)
+
+	switch {
+	case accessErr != nil:
+		warning := fmt.Sprintf("no se pudo dar acceso al login %s en la base de datos: %v", service.loginName(), accessErr)
+		result.Warnings = append(result.Warnings, warning)
+		service.publish(Event{JobID: job.ID, Kind: "warning", Message: warning})
+	case changed:
+		service.publish(Event{JobID: job.ID, Kind: "info", Message: fmt.Sprintf("Usuario %s creado en la base de datos con rol db_owner", service.loginName())})
+	}
+
 	result.IsDone = true
 	service.publish(Event{JobID: job.ID, Kind: "job-done", BytesDone: job.SizeBytes, BytesTotal: job.SizeBytes,
 		Message: fmt.Sprintf("Importado: %d lotes, %d aviso(s)", result.Batches, len(result.Warnings))})
 
 	return result
+}
+
+// loginName is for messages: empty username means the Windows login (tests).
+func (service *Service) loginName() string {
+	if service.username == "" {
+		return "de Windows"
+	}
+
+	return service.username
 }
 
 func (service *Service) connectionParams(job PlannedJob) migrator.ConnectionParams {

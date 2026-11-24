@@ -80,3 +80,40 @@ func EnsureDatabase(params ConnectionParams) (isCreated bool, err error) {
 
 	return true, nil
 }
+
+// ensureOwnAccess gives the login of the connection a user in the database
+// and the db_owner role when it has none (a login that is not the owner and
+// only passes through as sysadmin has no user, and the ERP connecting with
+// it would be refused). It returns 1 when it changed something.
+const ensureOwnAccess = `
+DECLARE @login sysname = SUSER_SNAME(), @user sysname, @changed int = 0, @sql nvarchar(max);
+SELECT @user = name FROM sys.database_principals WHERE sid = SUSER_SID();
+IF @user IS NULL
+BEGIN
+    SET @user = @login;
+    SET @sql = N'CREATE USER ' + QUOTENAME(@user) + N' FOR LOGIN ' + QUOTENAME(@login);
+    EXEC(@sql);
+    SET @changed = 1;
+END
+IF @user <> N'dbo' AND ISNULL(IS_ROLEMEMBER(N'db_owner', @user), 0) <> 1
+BEGIN
+    SET @sql = N'ALTER ROLE db_owner ADD MEMBER ' + QUOTENAME(@user);
+    EXEC(@sql);
+    SET @changed = 1;
+END
+SELECT @changed`
+
+// EnsureOwnAccess makes sure the login of the connection has a user with
+// db_owner in the database. changed is false when it already had.
+func (runner *Runner) EnsureOwnAccess(ctx context.Context) (changed bool, err error) {
+	if err := runner.pinDatabase(ctx); err != nil {
+		return false, err
+	}
+
+	var flag int
+	if err := runner.conn.QueryRowContext(ctx, ensureOwnAccess).Scan(&flag); err != nil {
+		return false, err
+	}
+
+	return flag == 1, nil
+}

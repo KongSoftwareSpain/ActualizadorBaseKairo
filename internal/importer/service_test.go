@@ -347,3 +347,28 @@ func TestRunDoesNotCreateDatabaseWhenScriptIsEmpty(t *testing.T) {
 		t.Fatalf("un script vacío no debe crear la base de datos (id=%v, err=%v)", id, err)
 	}
 }
+
+func TestRunGivesOwnLoginAccessToTheDatabase(t *testing.T) {
+	name, master := createDatabase(t)
+
+	// Another owner, so the login that imports has no user of its own.
+	if _, err := master.Exec("ALTER AUTHORIZATION ON DATABASE::[" + name + "] TO sa"); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := windowsAuthService(t).Run([]Job{
+		{ID: "a", KairoPath: writeKairo(t, testServer(), name, ""), SqlPath: writeSQL(t, "CREATE TABLE dbo.T (A int)\nGO\n")},
+	}, migratorOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !results[0].IsDone {
+		t.Fatalf("result = %+v", results[0])
+	}
+
+	var users int
+	if err := master.QueryRow(`SELECT COUNT(*) FROM [` + name + `].sys.database_principals WHERE sid = SUSER_SID()`).Scan(&users); err != nil || users != 1 {
+		t.Fatalf("el login debe tener un usuario en la BD: users=%d err=%v", users, err)
+	}
+}

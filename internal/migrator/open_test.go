@@ -120,3 +120,66 @@ func TestEnsureDatabaseRejectsMissingServer(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestEnsureOwnAccessCreatesUserWhenLoginIsNotOwner(t *testing.T) {
+	ctx := context.Background()
+	name := fmt.Sprintf("MigradorAccess_%d", time.Now().UnixNano())
+
+	master := openDB(t, "master")
+	if err := master.PingContext(ctx); err != nil {
+		master.Close()
+		t.Skipf("SQL Server no disponible: %v", err)
+	}
+
+	if _, err := master.ExecContext(ctx, "CREATE DATABASE ["+name+"]"); err != nil {
+		master.Close()
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() {
+		master.ExecContext(ctx, "ALTER DATABASE ["+name+"] SET SINGLE_USER WITH ROLLBACK IMMEDIATE")
+		master.ExecContext(ctx, "DROP DATABASE ["+name+"]")
+		master.Close()
+	})
+
+	// The test login created the database, so it is dbo already: nothing to do.
+	runner, closeAll, err := Open(ConnectionParams{Server: testServer(), Database: name}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := runner.EnsureOwnAccess(ctx)
+	if err != nil || changed {
+		t.Fatalf("dueño de la BD: changed=%v err=%v", changed, err)
+	}
+
+	closeAll()
+
+	// Another owner: the login is only a sysadmin passing through, with no user of its own.
+	if _, err := master.ExecContext(ctx, "ALTER AUTHORIZATION ON DATABASE::["+name+"] TO sa"); err != nil {
+		t.Fatal(err)
+	}
+
+	runner, closeAll, err = Open(ConnectionParams{Server: testServer(), Database: name}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeAll()
+
+	changed, err = runner.EnsureOwnAccess(ctx)
+	if err != nil || !changed {
+		t.Fatalf("otro dueño: changed=%v err=%v", changed, err)
+	}
+
+	var isOwner int
+	err = runner.conn.QueryRowContext(ctx,
+		`SELECT IS_ROLEMEMBER(N'db_owner', (SELECT name FROM sys.database_principals WHERE sid = SUSER_SID()))`).Scan(&isOwner)
+	if err != nil || isOwner != 1 {
+		t.Fatalf("el login debe tener usuario en la BD y ser db_owner: isOwner=%d err=%v", isOwner, err)
+	}
+
+	changed, err = runner.EnsureOwnAccess(ctx)
+	if err != nil || changed {
+		t.Fatalf("segunda llamada no debe cambiar nada: changed=%v err=%v", changed, err)
+	}
+}
