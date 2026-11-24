@@ -103,7 +103,7 @@ func (service *Service) Connect(params ConnectionParams) (Status, error) {
 
 	// On a remote server BACKUP writes on that machine: a relative path
 	// resolved against this PC would be meaningless there.
-	isRemote := !isLocalServer(params.Server)
+	isRemote := !IsLocalServer(params.Server)
 	backupDir := strings.TrimSpace(params.BackupDir)
 	if isRemote && backupDir != "" && !filepath.IsAbs(backupDir) {
 		return Status{}, errors.New("el servidor no es local: deja \"Carpeta de backups\" vacía o indica una ruta absoluta del disco del servidor")
@@ -352,9 +352,9 @@ func splitServer(server string) (host, port, instance string) {
 	return strings.TrimSpace(host), strings.TrimSpace(port), strings.TrimSpace(instance)
 }
 
-// isLocalServer reports whether the server is this machine, where BACKUP
+// IsLocalServer reports whether the server is this machine, where BACKUP
 // can write to the folders this process creates.
-func isLocalServer(server string) bool {
+func IsLocalServer(server string) bool {
 	host, _, _ := splitServer(server)
 	host = strings.ToLower(strings.TrimPrefix(strings.ToLower(host), "tcp:"))
 
@@ -366,6 +366,45 @@ func isLocalServer(server string) bool {
 	name, err := os.Hostname()
 
 	return err == nil && strings.EqualFold(host, name)
+}
+
+// Open connects with params and takes the database lock, for callers that
+// drive a Runner themselves (the importer). Call closeAll when done; on error
+// everything is already released and closeAll is nil.
+func Open(params ConnectionParams, emit func(Event)) (runner *Runner, closeAll func(), err error) {
+	dsn, err := buildDSN(params)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	db, err := sql.Open("sqlserver", dsn)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		db.Close()
+		return nil, nil, describeConnectError(params, err)
+	}
+
+	runner = NewRunner(conn, nil, "", emit)
+	runner.isRemote = !IsLocalServer(params.Server)
+
+	if err := runner.Lock(context.Background()); err != nil {
+		runner.Close()
+		db.Close()
+
+		return nil, nil, err
+	}
+
+	return runner, func() {
+		runner.Close()
+		db.Close()
+	}, nil
 }
 
 func buildDSN(params ConnectionParams) (string, error) {
@@ -393,7 +432,7 @@ func buildDSN(params ConnectionParams) (string, error) {
 	query.Set("connection timeout", "15")
 
 	// Only the local server is trusted without checking its certificate.
-	if isLocalServer(server) {
+	if IsLocalServer(server) {
 		query.Set("TrustServerCertificate", "true")
 	}
 

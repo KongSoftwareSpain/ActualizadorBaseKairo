@@ -102,17 +102,17 @@ func TestBuildDSNWithPort(t *testing.T) {
 	}
 }
 
-func TestIsLocalServer(t *testing.T) {
+func TestIsLocalServerExported(t *testing.T) {
 	hostname, _ := os.Hostname()
 
 	for _, server := range []string{"localhost", `localhost\SQLEXPRESS`, "(local)", ".", "127.0.0.1,1433", "tcp:localhost", hostname} {
-		if !isLocalServer(server) {
+		if !IsLocalServer(server) {
 			t.Errorf("%q debería ser local", server)
 		}
 	}
 
 	for _, server := range []string{"192.168.1.10", "srv-clientes", `otro\SQLEXPRESS`} {
-		if isLocalServer(server) {
+		if IsLocalServer(server) {
 			t.Errorf("%q no debería ser local", server)
 		}
 	}

@@ -149,6 +149,23 @@ func (runner *Runner) Lock(ctx context.Context) error {
 	return nil
 }
 
+// Database is the database of the connection, known once Lock has run.
+func (runner *Runner) Database() string {
+	return runner.database
+}
+
+// ExecBatch runs one batch outside any transaction. A batch that switched
+// database (USE) does not leave the session there: it is moved back.
+func (runner *Runner) ExecBatch(ctx context.Context, text string) error {
+	_, err := runner.conn.ExecContext(ctx, text)
+
+	if pinErr := runner.pinDatabase(ctx); err == nil {
+		err = pinErr
+	}
+
+	return err
+}
+
 // pinDatabase remembers the database of the connection the first time, and
 // afterwards moves the session back to it if a script switched with USE.
 // USE is not transactional: a rollback does not undo it.
