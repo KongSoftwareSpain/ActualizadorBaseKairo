@@ -24,6 +24,25 @@ async function toggleTheme() {
       <span class="text-sm text-muted">Esquema de SQL Server</span>
     </div>
 
+    <nav class="ml-4 flex items-center gap-1">
+      <UButton
+        to="/input"
+        label="Actualizar"
+        icon="i-lucide-refresh-cw"
+        color="neutral"
+        variant="ghost"
+        size="sm"
+      />
+      <UButton
+        to="/import"
+        label="Importar .sql"
+        icon="i-lucide-database-backup"
+        color="neutral"
+        variant="ghost"
+        size="sm"
+      />
+    </nav>
+
     <UTooltip :text="config.isDark ? 'Tema claro' : 'Tema oscuro'">
       <UButton
         :icon="config.isDark ? 'i-lucide-sun' : 'i-lucide-moon'"

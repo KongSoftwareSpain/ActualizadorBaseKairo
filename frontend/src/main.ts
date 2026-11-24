@@ -4,6 +4,7 @@ import { createRouter, createWebHashHistory } from "vue-router";
 import ui from "@nuxt/ui/vue-plugin";
 import App from "./App.vue";
 import Buttons from "./views/Buttons.vue";
+import ImportView from "./views/ImportView.vue";
 import InputView from "./views/InputView.vue";
 import UpdateView from "./views/UpdateView.vue";
 import "./style.css";
@@ -21,6 +22,7 @@ const router = createRouter({
       // The page works on an open connection.
       beforeEnter: () => (useMigratorStore().isConnected ? true : "/input"),
     },
+    { path: "/import", component: ImportView },
     { path: "/buttons", component: Buttons },
   ],
 });

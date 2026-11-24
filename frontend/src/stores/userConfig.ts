@@ -14,6 +14,7 @@ export const useUserConfigStore = defineStore("userConfig", () => {
   const username = ref("");
   const scriptsPath = ref("./Scripts");
   const backupDir = ref("");
+  const kairoPaths = ref<string[]>([]);
 
   // Private
   let isInitialized = false;
@@ -44,6 +45,7 @@ export const useUserConfigStore = defineStore("userConfig", () => {
       username.value = config.username;
       scriptsPath.value = config.scriptsPath;
       backupDir.value = config.backupDir;
+      kairoPaths.value = config.kairoPaths ?? [];
     } catch (error) {
       console.error("Failed to load config, using defaults", error);
     }
@@ -65,6 +67,7 @@ export const useUserConfigStore = defineStore("userConfig", () => {
     config.username = username.value;
     config.scriptsPath = scriptsPath.value;
     config.backupDir = backupDir.value;
+    config.kairoPaths = kairoPaths.value;
 
     await SaveToFile(config);
   }
@@ -87,6 +90,7 @@ export const useUserConfigStore = defineStore("userConfig", () => {
     username,
     scriptsPath,
     backupDir,
+    kairoPaths,
     init,
     save,
     scheduleSave,

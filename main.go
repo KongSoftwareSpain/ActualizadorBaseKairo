@@ -76,6 +76,8 @@ func main() {
 		Height:           800,
 		BackgroundColour: application.NewRGB(6, 7, 15),
 		URL:              "/",
+		// The import screen takes .sql files dropped on the window.
+		EnableFileDrop: true,
 	})
 
 	confirmCloseWhileUpdating(app, window, func() bool { return migratorService.IsRunning() || importService.IsRunning() })
