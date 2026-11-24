@@ -123,6 +123,10 @@ func (reader *utf16Reader) Read(target []byte) (int, error) {
 type lexState struct {
 	isInString       bool
 	isInBlockComment bool
+	// isInBracket and isInDoubleQuote are quoted identifiers: an apostrophe
+	// inside [O'Brien] or "it's" does not open a string.
+	isInBracket     bool
+	isInDoubleQuote bool
 }
 
 // advance moves the state over one line.
@@ -141,8 +145,25 @@ func (state *lexState) advance(line string) {
 				// A doubled quote stays inside the string: toggling twice does the same.
 				state.isInString = false
 			}
+		case state.isInBracket:
+			if char == ']' {
+				if index+1 < len(line) && line[index+1] == ']' {
+					index++ // escaped ]]
+				} else {
+					state.isInBracket = false
+				}
+			}
+		case state.isInDoubleQuote:
+			// A doubled quote closes and reopens on the next character.
+			if char == '"' {
+				state.isInDoubleQuote = false
+			}
 		case char == '\'':
 			state.isInString = true
+		case char == '[':
+			state.isInBracket = true
+		case char == '"':
+			state.isInDoubleQuote = true
 		case char == '-' && index+1 < len(line) && line[index+1] == '-':
 			return
 		case char == '/' && index+1 < len(line) && line[index+1] == '*':
@@ -240,7 +261,7 @@ func ReadBatches(source io.Reader, handle func(Batch) error) error {
 			break
 		}
 
-		if !state.isInString && !state.isInBlockComment && isGoLine(line) {
+		if state == (lexState{}) && isGoLine(line) {
 			if err := flush(); err != nil {
 				return err
 			}

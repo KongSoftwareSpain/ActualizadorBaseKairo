@@ -49,6 +49,8 @@ export const useImporterStore = defineStore("importer", () => {
   // State
   const rows = ref<ImportRow[]>([newRow()]);
   const isBusy = ref(false);
+  // Expels whoever else is connected to those databases (Kairo left open).
+  const shouldKickSessions = ref(false);
   const runError = ref("");
 
   const canRun = computed(
@@ -135,6 +137,11 @@ export const useImporterStore = defineStore("importer", () => {
 
   // One row per .sql; the Kairo folder of each one is still to choose.
   function addSqlFiles(paths: string[]) {
+    // Rows added in the middle of a run would never be imported.
+    if (isBusy.value) {
+      return;
+    }
+
     const sqlPaths = paths.filter((path) =>
       path.toLowerCase().endsWith(".sql"),
     );
@@ -222,7 +229,10 @@ export const useImporterStore = defineStore("importer", () => {
     try {
       const results = await Run(
         toJobs(),
-        new ApplyOptions({ allowOtherSessions: false, kickSessions: false }),
+        new ApplyOptions({
+          allowOtherSessions: false,
+          kickSessions: shouldKickSessions.value,
+        }),
       );
 
       results.forEach((result) => {
@@ -254,6 +264,7 @@ export const useImporterStore = defineStore("importer", () => {
   return {
     rows,
     isBusy,
+    shouldKickSessions,
     runError,
     canRun,
     addRow,

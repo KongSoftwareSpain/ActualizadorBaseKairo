@@ -83,7 +83,8 @@ frontend/
 - `importer.Service` (`Plan`, `Run`, `IsRunning`) loads a "Generate Scripts" `.sql` (schema and data, as SSMS writes it) into the database named by `[BaseDatos] Servidor` / `BaseDatos` of a Kairo `config.ini`. Each job is a Kairo folder (or the `config.ini` itself) plus a `.sql`; jobs of one `Run` go one after another and a failed job does not stop the next.
 - Login: always `kong` with the password of `silentPassword` (same injection as `--silent`, `KAIRO_SILENT_PASSWORD`); the `Usuario` of the ini is ignored. Only a local server is accepted (`migrator.IsLocalServer`). Two jobs on the same server and database are rejected by `Plan`.
 - `Run` per job: read the whole script once (an empty or unreadable file must not cost the database), `migrator.Open`, `Runner.Clean` (no backup, same session policy as `Apply`), then run every batch with `Runner.ExecBatch`. `sqlscript` marks the server-level header as skipped (`USE`, `CREATE DATABASE`, `ALTER DATABASE`, and what sits between `CREATE DATABASE` and the first `USE`). `CREATE USER` / `ALTER ROLE` / `ALTER AUTHORIZATION` failures (missing login) are warnings; any other failure stops that job and reports the batch number.
-- A `GO` line inside a string literal or block comment is not a separator. Files are read in a stream (they weigh tens of MB).
+- A `GO` line inside a string literal, a block comment or a quoted identifier (`[O'Brien]`, `"it's"`) is not a separator.
+- Other sessions on the target database (Kairo left open) stop a job unless the screen's checkbox is ticked (`ApplyOptions.KickSessions`). Kicking holds the database single-user only during `Clean`: a kicked program can reconnect before the import ends. Files dropped while an import runs are ignored. Files are read in a stream (they weigh tens of MB).
 - Log: `Logs\import.log`. Progress events carry bytes read of the file.
 
 ### User configuration

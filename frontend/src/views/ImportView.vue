@@ -185,6 +185,12 @@ async function onConfirm() {
         @click="importer.pickSqlFiles()"
       />
 
+      <UCheckbox
+        v-model="importer.shouldKickSessions"
+        label="Cerrar Kairo y otras conexiones abiertas a esas bases de datos"
+        :disabled="importer.isBusy"
+      />
+
       <template #actions>
         <UButton
           label="Importar"
@@ -203,6 +209,10 @@ async function onConfirm() {
       description="Se borrará TODO el contenido de estas bases de datos antes de importar. No hay copia de seguridad."
     >
       <template #body>
+        <p v-if="importer.shouldKickSessions" class="mb-2 text-sm">
+          Se cerrarán las conexiones abiertas a estas bases de datos (Kairo
+          abierto, por ejemplo).
+        </p>
         <ul class="selectable flex flex-col gap-1 text-sm text-error">
           <li v-for="row in plannedRows" :key="row.id">
             {{ row.planned?.server }} / {{ row.planned?.database }}

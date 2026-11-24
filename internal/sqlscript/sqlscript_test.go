@@ -243,3 +243,25 @@ func TestRealScript(t *testing.T) {
 		t.Fatalf("lotes: %d", total)
 	}
 }
+
+func TestApostropheInsideQuotedIdentifierDoesNotOpenString(t *testing.T) {
+	scripts := []string{
+		"CREATE TABLE [O'Brien] (a int)\nGO\nSELECT 1\nGO\n",
+		"CREATE TABLE \"it's\" (a int)\nGO\nSELECT 1\nGO\n",
+		"CREATE TABLE [a]]b'c] (a int)\nGO\nSELECT 1\nGO\n",
+	}
+
+	for _, script := range scripts {
+		if got := len(collect(t, script)); got != 2 {
+			t.Fatalf("%q: %d lotes, esperado 2", script, got)
+		}
+	}
+}
+
+func TestBracketInsideStringDoesNotOpenIdentifier(t *testing.T) {
+	batches := collect(t, "INSERT t VALUES (N'a[b')\nGO\nSELECT 1\nGO\n")
+
+	if len(batches) != 2 {
+		t.Fatalf("%d lotes, esperado 2", len(batches))
+	}
+}

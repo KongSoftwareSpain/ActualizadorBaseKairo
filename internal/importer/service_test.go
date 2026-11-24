@@ -1,10 +1,13 @@
 package importer
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"actualizador/internal/migrator"
 )
 
 func TestPlanReadsServerDatabaseAndAlwaysKong(t *testing.T) {
@@ -227,5 +230,40 @@ func TestRunRealScript(t *testing.T) {
 	var articles int
 	if err := master.QueryRow("SELECT COUNT(*) FROM [" + name + "].dbo.Articulos").Scan(&articles); err != nil || articles == 0 {
 		t.Fatalf("Articulos: %d, %v", articles, err)
+	}
+}
+
+func TestRunKicksOtherSessionsOnlyWhenAsked(t *testing.T) {
+	name, master := createDatabase(t)
+
+	other, err := master.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+
+	if _, err := other.ExecContext(context.Background(), "USE ["+name+"]"); err != nil {
+		t.Fatal(err)
+	}
+
+	jobs := []Job{{ID: "a", KairoPath: writeKairo(t, testServer(), name, ""), SqlPath: writeSQL(t, "CREATE TABLE dbo.T (A int)\nGO\n")}}
+	service := windowsAuthService(t)
+
+	results, err := service.Run(jobs, migrator.ApplyOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if results[0].IsDone || !strings.Contains(results[0].Error, "sesión") {
+		t.Fatalf("sin expulsar debe negarse por las sesiones abiertas: %+v", results[0])
+	}
+
+	results, err = service.Run(jobs, migrator.ApplyOptions{KickSessions: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !results[0].IsDone || !tableExists(t, master, name, "T") {
+		t.Fatalf("expulsando debe importar: %+v", results[0])
 	}
 }
