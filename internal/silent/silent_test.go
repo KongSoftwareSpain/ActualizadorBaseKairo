@@ -212,3 +212,15 @@ func TestReadConnectionUTF16BigEndian(t *testing.T) {
 		t.Fatalf("UTF-16 BE: %+v, %v", connection, err)
 	}
 }
+
+func TestReadConnectionUsername(t *testing.T) {
+	connection, err := ReadConnection(writeIni(t, "[BaseDatos]\r\nServidor=srv\r\nBaseDatos=bd\r\nUsuario = viasa \r\n"))
+	if err != nil || connection.Username != "viasa" {
+		t.Fatalf("Username = %q, err = %v", connection.Username, err)
+	}
+
+	connection, err = ReadConnection(writeIni(t, "[BaseDatos]\r\nServidor=srv\r\nBaseDatos=bd\r\n"))
+	if err != nil || connection.Username != "" {
+		t.Fatalf("sin Usuario debe quedar vacío (el que decide el valor por defecto es quien lo usa): %q, %v", connection.Username, err)
+	}
+}

@@ -78,7 +78,9 @@ async function onConfirm() {
               v-if="row.planned?.database"
               class="selectable text-sm text-muted"
             >
-              {{ row.planned.server }} / {{ row.planned.database }}
+              {{ row.planned.server }} / {{ row.planned.database }} · login de
+              Kairo:
+              {{ row.planned.appUser }}
             </span>
             <UButton
               icon="i-lucide-trash-2"

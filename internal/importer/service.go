@@ -23,9 +23,12 @@ import (
 // EventName is the Wails event that carries progress to the UI.
 const EventName = "importer:event"
 
-// defaultUsername is the login used on every machine; the Usuario of the
-// config.ini is ignored on purpose.
+// defaultUsername is the login this tool connects with on every machine; the
+// Usuario of the config.ini is the one Kairo itself will use, not this tool.
 const defaultUsername = "kong"
+
+// defaultAppUser is what Kairo uses when the config.ini has no Usuario.
+const defaultAppUser = "kairo"
 
 const progressInterval = 250 * time.Millisecond
 
@@ -45,6 +48,8 @@ type PlannedJob struct {
 	Server    string `json:"server"`
 	Database  string `json:"database"`
 	Username  string `json:"username"`
+	// AppUser is the login Kairo will connect with: Usuario of the config.ini.
+	AppUser   string `json:"appUser"`
 	SqlPath   string `json:"sqlPath"`
 	SizeBytes int64  `json:"sizeBytes"`
 	// IsNew is true when the database does not exist yet and Run will create
@@ -78,16 +83,20 @@ type Service struct {
 	password string
 	// username is "kong"; tests set it empty to use the Windows login.
 	username string
-	emit     func(Event)
+	// appPassword is the fixed password of the Kairo database login, used to
+	// create the Usuario of the config.ini when that login does not exist.
+	appPassword string
+	emit        func(Event)
 
 	mutex     sync.Mutex
 	isRunning bool
 }
 
 // NewService writes its log to <baseDir>\Logs\import.log. password is the one
-// of the kong login. emit forwards events to the UI and may be nil.
-func NewService(baseDir, password string, emit func(Event)) *Service {
-	return &Service{baseDir: baseDir, password: password, username: defaultUsername, emit: emit}
+// of the kong login; appPassword the fixed one of Kairo for the login named in
+// the config.ini. emit forwards events to the UI and may be nil.
+func NewService(baseDir, password, appPassword string, emit func(Event)) *Service {
+	return &Service{baseDir: baseDir, password: password, appPassword: appPassword, username: defaultUsername, emit: emit}
 }
 
 // IsRunning reports whether an import is in progress. The window uses it to
@@ -143,6 +152,11 @@ func (service *Service) planJob(job Job) PlannedJob {
 
 	planned.Server = connection.Server
 	planned.Database = connection.Database
+	planned.AppUser = strings.TrimSpace(connection.Username)
+
+	if planned.AppUser == "" {
+		planned.AppUser = defaultAppUser
+	}
 
 	if !migrator.IsLocalServer(connection.Server) {
 		planned.Error = fmt.Sprintf("el servidor %s no es local: solo se importa en el equipo propio", connection.Server)
@@ -269,6 +283,18 @@ func (service *Service) runJob(job PlannedJob, options migrator.ApplyOptions) Jo
 		service.publish(Event{JobID: job.ID, Kind: "info", Message: fmt.Sprintf("Base de datos %s creada", job.Database)})
 	}
 
+	// The login Kairo uses must exist before the script runs, so that its
+	// CREATE USER and ALTER ROLE work. Failing here is a warning, not an error.
+	if isWindowsLogin(job.AppUser) {
+		// nothing to create: Windows accounts have no password of ours
+	} else if isCreated, err := migrator.EnsureLogin(params, job.AppUser, service.appPassword); err != nil {
+		warning := fmt.Sprintf("no se pudo preparar el login %s: %v", job.AppUser, err)
+		result.Warnings = append(result.Warnings, warning)
+		service.publish(Event{JobID: job.ID, Kind: "warning", Message: warning})
+	} else if isCreated {
+		service.publish(Event{JobID: job.ID, Kind: "info", Message: fmt.Sprintf("Login %s creado en el servidor", job.AppUser)})
+	}
+
 	runner, closeAll, err := migrator.Open(params, func(event migrator.Event) {
 		if event.Kind != "error" {
 			service.publish(Event{JobID: job.ID, Kind: "info", Message: event.Message})
@@ -324,16 +350,28 @@ func (service *Service) runJob(job PlannedJob, options migrator.ApplyOptions) Jo
 		return fail(err)
 	}
 
-	// The login that imports must be able to use the database afterwards.
-	changed, accessErr := runner.EnsureOwnAccess(ctx)
+	// Both logins must be able to use the database afterwards: the one that
+	// imports (kong) and the one Kairo will connect with.
+	for _, login := range []string{"", job.AppUser} {
+		if login != "" && isWindowsLogin(login) {
+			continue
+		}
 
-	switch {
-	case accessErr != nil:
-		warning := fmt.Sprintf("no se pudo dar acceso al login %s en la base de datos: %v", service.loginName(), accessErr)
-		result.Warnings = append(result.Warnings, warning)
-		service.publish(Event{JobID: job.ID, Kind: "warning", Message: warning})
-	case changed:
-		service.publish(Event{JobID: job.ID, Kind: "info", Message: fmt.Sprintf("Usuario %s creado en la base de datos con rol db_owner", service.loginName())})
+		name := login
+		if name == "" {
+			name = service.loginName()
+		}
+
+		changed, accessErr := runner.EnsureAccess(ctx, login)
+
+		switch {
+		case accessErr != nil:
+			warning := fmt.Sprintf("no se pudo dar acceso al login %s en la base de datos: %v", name, accessErr)
+			result.Warnings = append(result.Warnings, warning)
+			service.publish(Event{JobID: job.ID, Kind: "warning", Message: warning})
+		case changed:
+			service.publish(Event{JobID: job.ID, Kind: "info", Message: fmt.Sprintf("Usuario %s creado en la base de datos con rol db_owner", name)})
+		}
 	}
 
 	result.IsDone = true
@@ -341,6 +379,12 @@ func (service *Service) runJob(job PlannedJob, options migrator.ApplyOptions) Jo
 		Message: fmt.Sprintf("Importado: %d lotes, %d aviso(s)", result.Batches, len(result.Warnings))})
 
 	return result
+}
+
+// isWindowsLogin tells DOMAIN\user and BUILTIN\group accounts, which have no
+// password to set and are not created here.
+func isWindowsLogin(login string) bool {
+	return strings.Contains(login, `\`)
 }
 
 // loginName is for messages: empty username means the Windows login (tests).

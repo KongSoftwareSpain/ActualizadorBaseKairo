@@ -2,6 +2,7 @@ package migrator
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"testing"
@@ -121,7 +122,7 @@ func TestEnsureDatabaseRejectsMissingServer(t *testing.T) {
 	}
 }
 
-func TestEnsureOwnAccessCreatesUserWhenLoginIsNotOwner(t *testing.T) {
+func TestEnsureAccessCreatesUserWhenLoginIsNotOwner(t *testing.T) {
 	ctx := context.Background()
 	name := fmt.Sprintf("MigradorAccess_%d", time.Now().UnixNano())
 
@@ -148,7 +149,7 @@ func TestEnsureOwnAccessCreatesUserWhenLoginIsNotOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	changed, err := runner.EnsureOwnAccess(ctx)
+	changed, err := runner.EnsureAccess(ctx, "")
 	if err != nil || changed {
 		t.Fatalf("dueño de la BD: changed=%v err=%v", changed, err)
 	}
@@ -166,7 +167,7 @@ func TestEnsureOwnAccessCreatesUserWhenLoginIsNotOwner(t *testing.T) {
 	}
 	defer closeAll()
 
-	changed, err = runner.EnsureOwnAccess(ctx)
+	changed, err = runner.EnsureAccess(ctx, "")
 	if err != nil || !changed {
 		t.Fatalf("otro dueño: changed=%v err=%v", changed, err)
 	}
@@ -178,8 +179,114 @@ func TestEnsureOwnAccessCreatesUserWhenLoginIsNotOwner(t *testing.T) {
 		t.Fatalf("el login debe tener usuario en la BD y ser db_owner: isOwner=%d err=%v", isOwner, err)
 	}
 
-	changed, err = runner.EnsureOwnAccess(ctx)
+	changed, err = runner.EnsureAccess(ctx, "")
 	if err != nil || changed {
 		t.Fatalf("segunda llamada no debe cambiar nada: changed=%v err=%v", changed, err)
+	}
+}
+
+func dropLoginOnCleanup(t *testing.T, master *sql.DB, login string) {
+	t.Helper()
+
+	t.Cleanup(func() { master.ExecContext(context.Background(), "DROP LOGIN "+quoteName(login)) })
+}
+
+func loginExists(t *testing.T, master *sql.DB, login string) bool {
+	t.Helper()
+
+	var count int
+	if err := master.QueryRow(`SELECT COUNT(*) FROM sys.server_principals WHERE name = @p1`, login).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+
+	return count > 0
+}
+
+func TestEnsureLoginCreatesMissingLoginAndKeepsExisting(t *testing.T) {
+	master := openDB(t, "master")
+	if err := master.PingContext(context.Background()); err != nil {
+		master.Close()
+		t.Skipf("SQL Server no disponible: %v", err)
+	}
+	defer master.Close()
+
+	// Quote, backslash and braces in the password check the escaping.
+	const password = `a'b\c}%x:`
+	login := fmt.Sprintf("login]prueba_%d", time.Now().UnixNano())
+	dropLoginOnCleanup(t, master, login)
+
+	params := ConnectionParams{Server: testServer(), Database: "master"}
+
+	isCreated, err := EnsureLogin(params, login, password)
+	if err != nil || !isCreated || !loginExists(t, master, login) {
+		t.Fatalf("primera llamada: isCreated=%v err=%v", isCreated, err)
+	}
+
+	isCreated, err = EnsureLogin(params, login, "")
+	if err != nil || isCreated {
+		t.Fatalf("un login que ya existe no se toca ni pide contraseña: isCreated=%v err=%v", isCreated, err)
+	}
+}
+
+func TestEnsureLoginNeedsPasswordWhenMissing(t *testing.T) {
+	master := openDB(t, "master")
+	if err := master.PingContext(context.Background()); err != nil {
+		master.Close()
+		t.Skipf("SQL Server no disponible: %v", err)
+	}
+	defer master.Close()
+
+	login := fmt.Sprintf("login_sin_clave_%d", time.Now().UnixNano())
+
+	_, err := EnsureLogin(ConnectionParams{Server: testServer(), Database: "master"}, login, "")
+	if err == nil || !strings.Contains(err.Error(), "contraseña") || loginExists(t, master, login) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestEnsureAccessForAnotherLogin(t *testing.T) {
+	ctx := context.Background()
+	stamp := time.Now().UnixNano()
+	name := fmt.Sprintf("MigradorAccess2_%d", stamp)
+	login := fmt.Sprintf("app_prueba_%d", stamp)
+
+	master := openDB(t, "master")
+	if err := master.PingContext(ctx); err != nil {
+		master.Close()
+		t.Skipf("SQL Server no disponible: %v", err)
+	}
+
+	if _, err := master.ExecContext(ctx, "CREATE DATABASE ["+name+"]"); err != nil {
+		master.Close()
+		t.Fatal(err)
+	}
+
+	dropLoginOnCleanup(t, master, login)
+
+	t.Cleanup(func() {
+		master.ExecContext(ctx, "ALTER DATABASE ["+name+"] SET SINGLE_USER WITH ROLLBACK IMMEDIATE")
+		master.ExecContext(ctx, "DROP DATABASE ["+name+"]")
+		master.Close()
+	})
+
+	if _, err := EnsureLogin(ConnectionParams{Server: testServer(), Database: name}, login, "Clave-123456!"); err != nil {
+		t.Fatal(err)
+	}
+
+	runner, closeAll, err := Open(ConnectionParams{Server: testServer(), Database: name}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeAll()
+
+	changed, err := runner.EnsureAccess(ctx, login)
+	if err != nil || !changed {
+		t.Fatalf("changed=%v err=%v", changed, err)
+	}
+
+	var isOwner int
+	err = runner.conn.QueryRowContext(ctx, `SELECT IS_ROLEMEMBER(N'db_owner', @p1)`, login).Scan(&isOwner)
+	if err != nil || isOwner != 1 {
+		t.Fatalf("el usuario %q debe ser db_owner: %d, %v", login, isOwner, err)
 	}
 }

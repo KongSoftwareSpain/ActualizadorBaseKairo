@@ -10,3 +10,6 @@ frontend/bindings
 
 # Contrasena del modo silencioso (la genera build/windows/silent-password.ps1)
 silent_password_local.go
+
+# Contrasena de la BD de Kairo para el importador (la genera build/windows/kairo-db-password.ps1)
+kairo_password_local.go

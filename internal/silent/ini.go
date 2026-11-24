@@ -28,6 +28,7 @@ func ReadConnection(path string) (Connection, error) {
 	values := parseIni(decodeIni(raw))[strings.ToLower(iniSection)]
 	connection.Server = values["servidor"]
 	connection.Database = values["basedatos"]
+	connection.Username = values["usuario"]
 
 	if connection.Server == "" || connection.Database == "" {
 		return connection, fmt.Errorf("%s no tiene [%s] Servidor y BaseDatos", path, iniSection)

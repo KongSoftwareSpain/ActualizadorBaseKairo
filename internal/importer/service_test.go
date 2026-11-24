@@ -123,7 +123,7 @@ func TestPlanRejectsDuplicateDatabase(t *testing.T) {
 }
 
 func TestRunRefusesEmptyPassword(t *testing.T) {
-	service := NewService(t.TempDir(), "", nil)
+	service := NewService(t.TempDir(), "", "", nil)
 
 	_, err := service.Run(nil, migratorOptions())
 	if err == nil || !strings.Contains(err.Error(), "contraseña de kong") {
@@ -370,5 +370,96 @@ func TestRunGivesOwnLoginAccessToTheDatabase(t *testing.T) {
 	var users int
 	if err := master.QueryRow(`SELECT COUNT(*) FROM [` + name + `].sys.database_principals WHERE sid = SUSER_SID()`).Scan(&users); err != nil || users != 1 {
 		t.Fatalf("el login debe tener un usuario en la BD: users=%d err=%v", users, err)
+	}
+}
+
+func TestPlanReadsAppUser(t *testing.T) {
+	sqlPath := writeSQL(t, "SELECT 1\nGO\n")
+
+	planned := newService(t).Plan([]Job{
+		{ID: "a", KairoPath: writeKairo(t, "localhost", "UnaBd", "Usuario=viasa\r\n"), SqlPath: sqlPath},
+		{ID: "b", KairoPath: writeKairo(t, "localhost", "OtraBd", ""), SqlPath: sqlPath},
+	})
+
+	if planned[0].AppUser != "viasa" || planned[1].AppUser != "kairo" {
+		t.Fatalf("AppUser: %q, %q", planned[0].AppUser, planned[1].AppUser)
+	}
+}
+
+func TestRunCreatesLoginFromIniBeforeTheScript(t *testing.T) {
+	name, master := createDatabase(t)
+	login := newLoginName(t, master)
+
+	script := "CREATE TABLE dbo.T (A int)\nGO\n" +
+		"CREATE USER [" + login + "] FOR LOGIN [" + login + "]\nGO\n" +
+		"ALTER ROLE [db_datareader] ADD MEMBER [" + login + "]\nGO\n"
+
+	results, err := windowsAuthService(t).Run([]Job{
+		{ID: "a", KairoPath: writeKairo(t, testServer(), name, "Usuario="+login+"\r\n"), SqlPath: writeSQL(t, script)},
+	}, migratorOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !results[0].IsDone || len(results[0].Warnings) != 0 {
+		t.Fatalf("el CREATE USER del script debe funcionar sin avisos: %+v", results[0])
+	}
+
+	if !loginExists(t, master, login) || !userExistsInDatabase(t, master, name, login) {
+		t.Fatal("deben existir el login y su usuario en la BD")
+	}
+}
+
+func TestRunGivesAppLoginAccessWhenScriptHasNoUserForIt(t *testing.T) {
+	name, master := createDatabase(t)
+	login := newLoginName(t, master)
+
+	results, err := windowsAuthService(t).Run([]Job{
+		{ID: "a", KairoPath: writeKairo(t, testServer(), name, "Usuario="+login+"\r\n"), SqlPath: writeSQL(t, "CREATE TABLE dbo.T (A int)\nGO\n")},
+	}, migratorOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !results[0].IsDone || !userExistsInDatabase(t, master, name, login) {
+		t.Fatalf("el login de la app debe quedar con usuario en la BD: %+v", results[0])
+	}
+}
+
+func TestRunWithoutAppPasswordWarnsAndStillImports(t *testing.T) {
+	name, master := createDatabase(t)
+	login := newLoginName(t, master)
+
+	service := windowsAuthService(t)
+	service.appPassword = ""
+
+	results, err := service.Run([]Job{
+		{ID: "a", KairoPath: writeKairo(t, testServer(), name, "Usuario="+login+"\r\n"), SqlPath: writeSQL(t, "CREATE TABLE dbo.T (A int)\nGO\n")},
+	}, migratorOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !results[0].IsDone || len(results[0].Warnings) == 0 || !strings.Contains(strings.Join(results[0].Warnings, "\n"), "contraseña de Kairo") {
+		t.Fatalf("result = %+v", results[0])
+	}
+
+	if loginExists(t, master, login) {
+		t.Fatal("sin contraseña no se debe crear el login")
+	}
+}
+
+func TestRunDoesNotCreateWindowsAppLogin(t *testing.T) {
+	name, _ := createDatabase(t)
+
+	results, err := windowsAuthService(t).Run([]Job{
+		{ID: "a", KairoPath: writeKairo(t, testServer(), name, `Usuario=BUILTIN\Usuarios`+"\r\n"), SqlPath: writeSQL(t, "CREATE TABLE dbo.T (A int)\nGO\n")},
+	}, migratorOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !results[0].IsDone || len(results[0].Warnings) != 0 {
+		t.Fatalf("un login de Windows no se crea ni avisa: %+v", results[0])
 	}
 }

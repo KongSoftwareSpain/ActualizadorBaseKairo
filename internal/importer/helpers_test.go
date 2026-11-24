@@ -55,14 +55,14 @@ func writeSQL(t *testing.T, content string) string {
 func newService(t *testing.T) *Service {
 	t.Helper()
 
-	return NewService(t.TempDir(), "secreto", nil)
+	return NewService(t.TempDir(), "secreto", "Clave-123456!x", nil)
 }
 
 // windowsAuthService uses the Windows login of the test machine instead of kong.
 func windowsAuthService(t *testing.T) *Service {
 	t.Helper()
 
-	service := NewService(t.TempDir(), "", nil)
+	service := NewService(t.TempDir(), "", "Clave-123456!x", nil)
 	service.username = ""
 
 	return service
@@ -131,6 +131,40 @@ func tableExists(t *testing.T, master *sql.DB, database, table string) bool {
 	query := fmt.Sprintf("SELECT COUNT(*) FROM [%s].sys.tables WHERE name = @p1", database)
 
 	if err := master.QueryRow(query, table).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+
+	return count > 0
+}
+
+func loginExists(t *testing.T, master *sql.DB, login string) bool {
+	t.Helper()
+
+	var count int
+	if err := master.QueryRow(`SELECT COUNT(*) FROM sys.server_principals WHERE name = @p1`, login).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+
+	return count > 0
+}
+
+// newLoginName returns a login name that does not exist and drops it when the test ends.
+func newLoginName(t *testing.T, master *sql.DB) string {
+	t.Helper()
+
+	login := fmt.Sprintf("viasa_%d", time.Now().UnixNano())
+	t.Cleanup(func() { master.Exec("DROP LOGIN [" + login + "]") })
+
+	return login
+}
+
+func userExistsInDatabase(t *testing.T, master *sql.DB, database, user string) bool {
+	t.Helper()
+
+	var count int
+	query := fmt.Sprintf("SELECT COUNT(*) FROM [%s].sys.database_principals WHERE name = @p1", database)
+
+	if err := master.QueryRow(query, user).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 

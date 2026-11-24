@@ -34,6 +34,9 @@ type Options struct {
 type Connection struct {
 	Server   string
 	Database string
+	// Username is [BaseDatos] Usuario, empty when the ini has none: Kairo then
+	// uses "kairo".
+	Username string
 }
 
 // Updater is the part of migrator.Service that Run needs (a fake in tests).

@@ -3,6 +3,7 @@ package migrator
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -81,13 +82,13 @@ func EnsureDatabase(params ConnectionParams) (isCreated bool, err error) {
 	return true, nil
 }
 
-// ensureOwnAccess gives the login of the connection a user in the database
+// ensureAccess gives a login (the one of the connection when @p1 is empty) a user in the database
 // and the db_owner role when it has none (a login that is not the owner and
 // only passes through as sysadmin has no user, and the ERP connecting with
 // it would be refused). It returns 1 when it changed something.
-const ensureOwnAccess = `
-DECLARE @login sysname = SUSER_SNAME(), @user sysname, @changed int = 0, @sql nvarchar(max);
-SELECT @user = name FROM sys.database_principals WHERE sid = SUSER_SID();
+const ensureAccess = `
+DECLARE @login sysname = ISNULL(NULLIF(@p1, N''), SUSER_SNAME()), @user sysname, @changed int = 0, @sql nvarchar(max);
+SELECT @user = name FROM sys.database_principals WHERE sid = SUSER_SID(@login);
 IF @user IS NULL
 BEGIN
     SET @user = @login;
@@ -103,17 +104,59 @@ BEGIN
 END
 SELECT @changed`
 
-// EnsureOwnAccess makes sure the login of the connection has a user with
-// db_owner in the database. changed is false when it already had.
-func (runner *Runner) EnsureOwnAccess(ctx context.Context) (changed bool, err error) {
+// EnsureAccess makes sure the login has a user with db_owner in the database
+// of the connection. An empty login means the one of the connection. changed
+// is false when it already had both.
+func (runner *Runner) EnsureAccess(ctx context.Context, login string) (changed bool, err error) {
 	if err := runner.pinDatabase(ctx); err != nil {
 		return false, err
 	}
 
 	var flag int
-	if err := runner.conn.QueryRowContext(ctx, ensureOwnAccess).Scan(&flag); err != nil {
+	if err := runner.conn.QueryRowContext(ctx, ensureAccess, login).Scan(&flag); err != nil {
 		return false, err
 	}
 
 	return flag == 1, nil
+}
+
+// EnsureLogin creates the server login with that password when it does not
+// exist (CHECK_POLICY off, like the fixed password of Kairo needs). An
+// existing login is never touched. The creating login needs sysadmin or
+// securityadmin.
+func EnsureLogin(params ConnectionParams, login, password string) (isCreated bool, err error) {
+	login = strings.TrimSpace(login)
+	if login == "" {
+		return false, errors.New("falta el nombre del login")
+	}
+
+	db, err := openMaster(params)
+	if err != nil {
+		return false, err
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sys.server_principals WHERE name = @p1`, login).Scan(&count); err != nil {
+		return false, err
+	}
+
+	if count > 0 {
+		return false, nil
+	}
+
+	if password == "" {
+		return false, fmt.Errorf("el login %q no existe y esta compilación no incluye la contraseña de Kairo para crearlo", login)
+	}
+
+	// CREATE LOGIN does not take parameters: the password goes in as a literal.
+	statement := "CREATE LOGIN " + quoteName(login) + " WITH PASSWORD = N'" + strings.ReplaceAll(password, "'", "''") + "', CHECK_POLICY = OFF"
+
+	if _, err := db.ExecContext(ctx, statement); err != nil {
+		return false, fmt.Errorf("no se pudo crear el login %q: %w (el login que importa necesita ser sysadmin o securityadmin)", login, err)
+	}
+
+	return true, nil
 }
