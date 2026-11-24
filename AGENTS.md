@@ -29,6 +29,8 @@ Windows only. Do not add cross-platform code (macOS/Linux/mobile/server/Docker b
 main.go                   Wails entry point: registers services, creates the window
 internal/userconfig/      userconfig.Service: loads/saves user settings as JSON
 internal/migrator/        migrator.Service: script loading, backup, baseline, apply; emits `migrator:event`
+internal/importer/        importer.Service: loads an SSMS .sql into the local DB of a Kairo config.ini; emits `importer:event`
+internal/sqlscript/       streaming reader of GO-separated batches (UTF-16/UTF-8), header detection
 build/                    Wails build config, Windows Taskfile, icons, NSIS/MSIX installers
 frontend/
   bindings/               GENERATED TypeScript bindings (gitignored, do not edit)
@@ -75,6 +77,14 @@ frontend/
 - `Clean` (button "Limpiar BD", behind a confirmation modal) drops every user object (tables, views, routines, types, XML schema collections, non-system schemas, `SchemaVersions`) so the next `Apply` rebuilds from V0001. No backup, by design (development use). It does not call `Status`, so it works on a database newer than the scripts. Refuses system databases; same session policy as `Apply` (`holdSessions`). Drops are retried in passes until nothing more can go.
 - Base folder (`Scripts`, `Logs`, `Backups`): the executable's folder; under `wails3 task dev` (env `FRONTEND_DEVSERVER_URL` set) it is the working directory, i.e. the repository root.
 - Do not call methods that use the connection while `isRunning` is set: the single connection is inside a transaction.
+
+### Importer (`/import`)
+
+- `importer.Service` (`Plan`, `Run`, `IsRunning`) loads a "Generate Scripts" `.sql` (schema and data, as SSMS writes it) into the database named by `[BaseDatos] Servidor` / `BaseDatos` of a Kairo `config.ini`. Each job is a Kairo folder (or the `config.ini` itself) plus a `.sql`; jobs of one `Run` go one after another and a failed job does not stop the next.
+- Login: always `kong` with the password of `silentPassword` (same injection as `--silent`, `KAIRO_SILENT_PASSWORD`); the `Usuario` of the ini is ignored. Only a local server is accepted (`migrator.IsLocalServer`). Two jobs on the same server and database are rejected by `Plan`.
+- `Run` per job: read the whole script once (an empty or unreadable file must not cost the database), `migrator.Open`, `Runner.Clean` (no backup, same session policy as `Apply`), then run every batch with `Runner.ExecBatch`. `sqlscript` marks the server-level header as skipped (`USE`, `CREATE DATABASE`, `ALTER DATABASE`, and what sits between `CREATE DATABASE` and the first `USE`). `CREATE USER` / `ALTER ROLE` / `ALTER AUTHORIZATION` failures (missing login) are warnings; any other failure stops that job and reports the batch number.
+- A `GO` line inside a string literal or block comment is not a separator. Files are read in a stream (they weigh tens of MB).
+- Log: `Logs\import.log`. Progress events carry bytes read of the file.
 
 ### User configuration
 

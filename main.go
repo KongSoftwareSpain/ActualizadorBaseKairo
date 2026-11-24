@@ -9,6 +9,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 
+	"actualizador/internal/importer"
 	"actualizador/internal/migrator"
 	"actualizador/internal/silent"
 	"actualizador/internal/userconfig"
@@ -22,6 +23,7 @@ var silentPassword string
 
 func init() {
 	application.RegisterEvent[migrator.Event](migrator.EventName)
+	application.RegisterEvent[importer.Event](importer.EventName)
 }
 
 // Wails embeds the built frontend into the binary.
@@ -44,6 +46,13 @@ func main() {
 		}
 	})
 
+	// The import uses the same kong login as --silent, so it shares its password.
+	importService := importer.NewService(baseDir, silentPassword, func(event importer.Event) {
+		if app != nil {
+			app.Event.Emit(importer.EventName, event)
+		}
+	})
+
 	runSilent(baseDir, migratorService)
 
 	app = application.New(application.Options{
@@ -52,6 +61,7 @@ func main() {
 		Services: []application.Service{
 			application.NewService(&userconfig.Service{}),
 			application.NewService(migratorService),
+			application.NewService(importService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -68,7 +78,7 @@ func main() {
 		URL:              "/",
 	})
 
-	confirmCloseWhileUpdating(app, window, migratorService)
+	confirmCloseWhileUpdating(app, window, func() bool { return migratorService.IsRunning() || importService.IsRunning() })
 
 	err = app.Run()
 	if err != nil {
@@ -79,11 +89,11 @@ func main() {
 // confirmCloseWhileUpdating asks before closing the window during an update.
 // Closing aborts the running script (SQL Server rolls it back), leaving the
 // database half updated and the log cut short.
-func confirmCloseWhileUpdating(app *application.App, window *application.WebviewWindow, service *migrator.Service) {
+func confirmCloseWhileUpdating(app *application.App, window *application.WebviewWindow, isBusy func() bool) {
 	var isCloseConfirmed atomic.Bool
 
 	window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
-		if isCloseConfirmed.Load() || !service.IsRunning() {
+		if isCloseConfirmed.Load() || !isBusy() {
 			return
 		}
 
@@ -91,8 +101,8 @@ func confirmCloseWhileUpdating(app *application.App, window *application.Webview
 
 		dialog := app.Dialog.Question().
 			SetTitle("Actualización en curso").
-			SetMessage("Hay una actualización en curso. Si cierras ahora, se interrumpe el script que se está ejecutando " +
-				"(SQL Server lo revierte) y la base de datos queda a medio actualizar. ¿Cerrar de todos modos?").
+			SetMessage("Hay una actualización o una importación en curso. Si cierras ahora, se interrumpe el script que se está ejecutando " +
+				"(SQL Server lo revierte) y la base de datos queda a medias. ¿Cerrar de todos modos?").
 			AttachToWindow(window)
 
 		closeButton := dialog.AddButton("Cerrar de todos modos")
