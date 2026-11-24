@@ -80,10 +80,10 @@ async function onConfirm() {
               v-model="importer.sqlPassword"
               :placeholder="
                 config.importUsername.trim().toLowerCase() === 'kong'
-                  ? 'Contraseña predeterminada de kong'
-                  : 'Contraseña'
+                  ? 'Vacía = usar la contraseña predeterminada de kong'
+                  : 'Escribe la contraseña de este usuario'
               "
-              class="w-72"
+              class="w-96"
               :disabled="importer.isBusy || importer.isWindowsLogin"
             />
             <UCheckbox
