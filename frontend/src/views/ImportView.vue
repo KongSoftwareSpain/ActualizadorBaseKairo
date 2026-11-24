@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import ActionBar from "@/components/ActionBar.vue";
+import PasswordInput from "@/components/PasswordInput.vue";
 import { useImporterStore, type ImportRow } from "@/stores/importer";
 import { useUserConfigStore } from "@/stores/userConfig";
 
@@ -58,6 +59,41 @@ async function onConfirm() {
         su carpeta de Kairo. Se borra todo el contenido de esa base de datos
         antes de importar. Arrastra aquí uno o varios .sql para añadir filas.
       </div>
+
+      <UCard>
+        <div class="flex flex-col gap-3">
+          <span class="text-sm font-semibold text-highlighted">
+            Conexión al SQL Server
+          </span>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <UInput
+              v-model="config.importUsername"
+              placeholder="Usuario"
+              icon="i-lucide-user"
+              class="w-48"
+              :disabled="importer.isBusy || importer.isWindowsLogin"
+              :ui="{ base: 'selectable' }"
+              @update:model-value="config.scheduleSave()"
+            />
+            <PasswordInput
+              v-model="importer.sqlPassword"
+              :placeholder="
+                config.importUsername.trim().toLowerCase() === 'kong'
+                  ? 'Contraseña predeterminada de kong'
+                  : 'Contraseña'
+              "
+              class="w-72"
+              :disabled="importer.isBusy || importer.isWindowsLogin"
+            />
+            <UCheckbox
+              v-model="importer.isWindowsLogin"
+              label="Usar mi usuario de Windows"
+              :disabled="importer.isBusy"
+            />
+          </div>
+        </div>
+      </UCard>
 
       <datalist id="kairo-paths">
         <option v-for="path in config.kairoPaths" :key="path" :value="path" />

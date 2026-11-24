@@ -158,3 +158,24 @@ func TestKairoPathsSavedAndOldFileLoadsEmpty(t *testing.T) {
 		t.Fatalf("un fichero antiguo debe dar una lista vacía, no nil: %#v", old.KairoPaths)
 	}
 }
+
+func TestImportUsernameDefaultsToKongAndOldFileKeepsIt(t *testing.T) {
+	service, path := newTestService(t)
+
+	if NewConfig().ImportUsername != "kong" {
+		t.Fatalf("ImportUsername = %q", NewConfig().ImportUsername)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(path, []byte(`{"isDark": true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := service.LoadFromFile()
+	if err != nil || loaded.ImportUsername != "kong" {
+		t.Fatalf("un fichero antiguo debe dar kong: %q, %v", loaded.ImportUsername, err)
+	}
+}

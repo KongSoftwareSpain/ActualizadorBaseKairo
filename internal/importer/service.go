@@ -81,7 +81,9 @@ type Event struct {
 type Service struct {
 	baseDir  string
 	password string
-	// username is "kong"; tests set it empty to use the Windows login.
+	// defaultPassword is the one built into this build for the kong login.
+	defaultPassword string
+	// username is kong until SetCredentials changes it; empty means the Windows login.
 	username string
 	// appPassword is the fixed password of the Kairo database login, used to
 	// create the Usuario of the config.ini when that login does not exist.
@@ -96,7 +98,56 @@ type Service struct {
 // of the kong login; appPassword the fixed one of Kairo for the login named in
 // the config.ini. emit forwards events to the UI and may be nil.
 func NewService(baseDir, password, appPassword string, emit func(Event)) *Service {
-	return &Service{baseDir: baseDir, password: password, appPassword: appPassword, username: defaultUsername, emit: emit}
+	return &Service{baseDir: baseDir, password: password, defaultPassword: password, appPassword: appPassword, username: defaultUsername, emit: emit}
+}
+
+// Credentials are the login this tool connects to SQL Server with. The
+// password is never saved to disk.
+type Credentials struct {
+	Username string `json:"username"`
+	// Password empty with Username "kong" means the one built into this build.
+	Password string `json:"password"`
+	// IsWindows uses the Windows login of the user and ignores the rest.
+	IsWindows bool `json:"isWindows"`
+}
+
+// SetCredentials chooses the login for the next Plan and Run. Without it the
+// login is kong with the password of this build.
+func (service *Service) SetCredentials(credentials Credentials) error {
+	service.mutex.Lock()
+	defer service.mutex.Unlock()
+
+	if service.isRunning {
+		return errors.New("hay una importación en curso")
+	}
+
+	if credentials.IsWindows {
+		service.username, service.password = "", ""
+		return nil
+	}
+
+	username := strings.TrimSpace(credentials.Username)
+	if username == "" {
+		return errors.New("falta el usuario de SQL Server (o marca usar el usuario de Windows)")
+	}
+
+	password := credentials.Password
+
+	if password == "" && strings.EqualFold(username, defaultUsername) {
+		if service.defaultPassword == "" {
+			return errors.New("esta compilación no incluye la contraseña de kong (falta KAIRO_SILENT_PASSWORD al compilar): escríbela a mano")
+		}
+
+		password = service.defaultPassword
+	}
+
+	if password == "" {
+		return fmt.Errorf("falta la contraseña de %s", username)
+	}
+
+	service.username, service.password = username, password
+
+	return nil
 }
 
 // IsRunning reports whether an import is in progress. The window uses it to

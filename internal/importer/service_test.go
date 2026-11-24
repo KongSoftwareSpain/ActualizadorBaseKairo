@@ -463,3 +463,90 @@ func TestRunDoesNotCreateWindowsAppLogin(t *testing.T) {
 		t.Fatalf("un login de Windows no se crea ni avisa: %+v", results[0])
 	}
 }
+
+func TestSetCredentialsDefaultsToKongWithBuiltInPassword(t *testing.T) {
+	service := newService(t) // kong, built-in password "secreto"
+	sqlPath := writeSQL(t, "SELECT 1\nGO\n")
+	kairo := writeKairo(t, "localhost", "Tecnicos", "")
+
+	if err := service.SetCredentials(Credentials{Username: "kong", Password: ""}); err != nil {
+		t.Fatal(err)
+	}
+
+	if service.username != "kong" || service.password != "secreto" {
+		t.Fatalf("username=%q password=%q", service.username, service.password)
+	}
+
+	if planned := service.Plan([]Job{{ID: "a", KairoPath: kairo, SqlPath: sqlPath}}); planned[0].Username != "kong" {
+		t.Fatalf("Username = %q", planned[0].Username)
+	}
+}
+
+func TestSetCredentialsCustomUser(t *testing.T) {
+	service := newService(t)
+	kairo := writeKairo(t, "localhost", "Tecnicos", "")
+	sqlPath := writeSQL(t, "SELECT 1\nGO\n")
+
+	err := service.SetCredentials(Credentials{Username: "otro", Password: ""})
+	if err == nil || !strings.Contains(err.Error(), "contraseña") {
+		t.Fatalf("un usuario distinto de kong necesita contraseña: %v", err)
+	}
+
+	if err := service.SetCredentials(Credentials{Username: " otro ", Password: "clave"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if service.username != "otro" || service.password != "clave" {
+		t.Fatalf("username=%q password=%q", service.username, service.password)
+	}
+
+	if planned := service.Plan([]Job{{ID: "a", KairoPath: kairo, SqlPath: sqlPath}}); planned[0].Username != "otro" {
+		t.Fatalf("Username = %q", planned[0].Username)
+	}
+
+	// Back to the default: the built-in password of kong is still there.
+	if err := service.SetCredentials(Credentials{Username: "KONG"}); err != nil || service.password != "secreto" {
+		t.Fatalf("err=%v password=%q", err, service.password)
+	}
+}
+
+func TestSetCredentialsWindowsAndEmptyUser(t *testing.T) {
+	service := newService(t)
+
+	if err := service.SetCredentials(Credentials{IsWindows: true, Username: "ignorado", Password: "ignorada"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if service.username != "" || service.password != "" {
+		t.Fatalf("Windows: username=%q password=%q", service.username, service.password)
+	}
+
+	if err := service.SetCredentials(Credentials{Username: "  "}); err == nil {
+		t.Fatal("sin usuario y sin Windows debe fallar")
+	}
+}
+
+func TestSetCredentialsKongWithoutBuiltInPassword(t *testing.T) {
+	service := NewService(t.TempDir(), "", "", nil)
+
+	err := service.SetCredentials(Credentials{Username: "kong"})
+	if err == nil || !strings.Contains(err.Error(), "contraseña de kong") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunWithWindowsCredentials(t *testing.T) {
+	name, master := createDatabase(t)
+
+	service := NewService(t.TempDir(), "secreto", "", nil)
+	if err := service.SetCredentials(Credentials{IsWindows: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := service.Run([]Job{
+		{ID: "a", KairoPath: writeKairo(t, testServer(), name, ""), SqlPath: writeSQL(t, "CREATE TABLE dbo.T (A int)\nGO\n")},
+	}, migratorOptions())
+	if err != nil || !results[0].IsDone || !tableExists(t, master, name, "T") {
+		t.Fatalf("err=%v results=%+v", err, results)
+	}
+}

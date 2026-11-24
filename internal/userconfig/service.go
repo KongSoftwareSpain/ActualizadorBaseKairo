@@ -23,15 +23,18 @@ type Config struct {
 	BackupDir   string `json:"backupDir"`
 	// KairoPaths are the last Kairo folders used on the import screen (at most 10).
 	KairoPaths []string `json:"kairoPaths"`
+	// ImportUsername is the SQL Server login typed on the import screen (never its password).
+	ImportUsername string `json:"importUsername"`
 }
 
 func NewConfig() Config {
 	return Config{
-		IsDark:      false,
-		Server:      `localhost\SQLEXPRESS`,
-		ScriptsPath: "./Scripts",
-		BackupDir:   "",
-		KairoPaths:  []string{},
+		IsDark:         false,
+		Server:         `localhost\SQLEXPRESS`,
+		ScriptsPath:    "./Scripts",
+		BackupDir:      "",
+		KairoPaths:     []string{},
+		ImportUsername: "kong",
 	}
 }
 

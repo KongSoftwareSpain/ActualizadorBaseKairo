@@ -1,11 +1,16 @@
 import { Dialogs, Events } from "@wailsio/runtime";
 import { ApplyOptions } from "@bindings/actualizador/internal/migrator";
 import {
+  Credentials,
   Job,
   type Event as ImporterEvent,
   type PlannedJob,
 } from "@bindings/actualizador/internal/importer";
-import { Plan, Run } from "@bindings/actualizador/internal/importer/service";
+import {
+  Plan,
+  Run,
+  SetCredentials,
+} from "@bindings/actualizador/internal/importer/service";
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { useUserConfigStore } from "./userConfig.ts";
@@ -51,6 +56,10 @@ export const useImporterStore = defineStore("importer", () => {
   const isBusy = ref(false);
   // Expels whoever else is connected to those databases (Kairo left open).
   const shouldKickSessions = ref(false);
+  // Login of SQL Server. The password is never saved; empty with kong means
+  // the one built into this build.
+  const sqlPassword = ref("");
+  const isWindowsLogin = ref(false);
   const runError = ref("");
 
   const canRun = computed(
@@ -130,6 +139,19 @@ export const useImporterStore = defineStore("importer", () => {
       .catch((error) => console.error("Failed to save config", error));
   }
 
+  // Sends the login typed on the screen. Throws the message to show.
+  async function applyCredentials() {
+    const config = useUserConfigStore();
+
+    await SetCredentials(
+      new Credentials({
+        username: config.importUsername,
+        password: sqlPassword.value,
+        isWindows: isWindowsLogin.value,
+      }),
+    );
+  }
+
   // Actions
   function addRow() {
     rows.value.push(newRow());
@@ -206,6 +228,8 @@ export const useImporterStore = defineStore("importer", () => {
     runError.value = "";
 
     try {
+      await applyCredentials();
+
       const planned = await Plan(toJobs());
 
       rows.value.forEach((row, index) => {
@@ -227,6 +251,8 @@ export const useImporterStore = defineStore("importer", () => {
     rememberKairoPaths();
 
     try {
+      await applyCredentials();
+
       const results = await Run(
         toJobs(),
         new ApplyOptions({
@@ -265,6 +291,8 @@ export const useImporterStore = defineStore("importer", () => {
     rows,
     isBusy,
     shouldKickSessions,
+    sqlPassword,
+    isWindowsLogin,
     runError,
     canRun,
     addRow,
