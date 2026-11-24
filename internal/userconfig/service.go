@@ -21,6 +21,8 @@ type Config struct {
 	// the SQL Server instance.
 	ScriptsPath string `json:"scriptsPath"`
 	BackupDir   string `json:"backupDir"`
+	// KairoPaths are the last Kairo folders used on the import screen (at most 10).
+	KairoPaths []string `json:"kairoPaths"`
 }
 
 func NewConfig() Config {
@@ -29,6 +31,7 @@ func NewConfig() Config {
 		Server:      `localhost\SQLEXPRESS`,
 		ScriptsPath: "./Scripts",
 		BackupDir:   "",
+		KairoPaths:  []string{},
 	}
 }
 

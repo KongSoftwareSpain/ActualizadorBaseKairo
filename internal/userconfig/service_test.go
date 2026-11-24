@@ -3,6 +3,7 @@ package userconfig
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -22,7 +23,7 @@ func TestLoadMissingFileGivesDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if config != NewConfig() {
+	if !reflect.DeepEqual(config, NewConfig()) {
 		t.Fatalf("config: %+v", config)
 	}
 }
@@ -44,7 +45,7 @@ func TestSaveThenLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if loaded != saved {
+	if !reflect.DeepEqual(loaded, saved) {
 		t.Fatalf("config: %+v, esperado %+v", loaded, saved)
 	}
 
@@ -91,7 +92,7 @@ func TestLoadCorruptFileGivesDefaultsAndKeepsCopy(t *testing.T) {
 		t.Fatalf("un config corrupto no debe impedir arrancar: %v", err)
 	}
 
-	if config != NewConfig() {
+	if !reflect.DeepEqual(config, NewConfig()) {
 		t.Fatalf("config: %+v", config)
 	}
 
@@ -122,5 +123,38 @@ func TestLoadOldFileKeepsDefaultsForNewFields(t *testing.T) {
 
 	if !config.IsDark || config.Server != NewConfig().Server || config.ScriptsPath != "./Scripts" {
 		t.Fatalf("config: %+v", config)
+	}
+}
+
+func TestKairoPathsSavedAndOldFileLoadsEmpty(t *testing.T) {
+	service, path := newTestService(t)
+
+	saved := NewConfig()
+	saved.KairoPaths = []string{`C:\Kairo\Uno`, `C:\Kairo\Dos`}
+
+	if err := service.SaveToFile(saved); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := service.LoadFromFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(loaded.KairoPaths, saved.KairoPaths) {
+		t.Fatalf("KairoPaths: %q", loaded.KairoPaths)
+	}
+
+	if err := os.WriteFile(path, []byte(`{"isDark": true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	old, err := service.LoadFromFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if old.KairoPaths == nil || len(old.KairoPaths) != 0 {
+		t.Fatalf("un fichero antiguo debe dar una lista vacía, no nil: %#v", old.KairoPaths)
 	}
 }
